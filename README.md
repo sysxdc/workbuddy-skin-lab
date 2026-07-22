@@ -25,6 +25,12 @@
 
 如果你要使用“输入提示词 → AI 生成背景和五个固定模块 → 直接在 WorkBuddy 预览”的完整流程，
 请直接阅读：[WorkBuddy AI 主题生成：完整小白教程](docs/BEGINNER_WORKBUDDY_THEME.md)。
+
+最新版 Skill：
+
+- [下载 WorkBuddy-Skin-Lab-1.2.0-Skill.zip](https://github.com/sysxdc/workbuddy-skin-lab/releases/download/v1.2.0/WorkBuddy-Skin-Lab-1.2.0-Skill.zip)
+- [查看 v1.2.0 发布说明与 SHA-256](https://github.com/sysxdc/workbuddy-skin-lab/releases/tag/v1.2.0)
+
 最终用户不需要 Codex：在 WorkBuddy 的“技能 → 添加技能 → 上传技能”中导入
 `WorkBuddy-Skin-Lab-1.2.0-Skill.zip` 与 `NoneLinear-Image-0.1.0-Skill.zip`，之后所有需求、
 计费确认、预览修改和恢复都在 WorkBuddy 对话中完成。首次启用本机 CDP 仍需从外部双击一次
