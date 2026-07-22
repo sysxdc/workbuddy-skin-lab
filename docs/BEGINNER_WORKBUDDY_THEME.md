@@ -13,7 +13,7 @@
 准备两个 Skill ZIP：
 
 ```text
-WorkBuddy-Skin-Lab-1.2.1-rc.1-Skill.zip
+WorkBuddy-Skin-Lab-1.2.1-Skill.zip
 NoneLinear-Image-0.1.0-Skill.zip
 ```
 
@@ -159,7 +159,7 @@ Skill 会在当前任务页完成：
 
 ### 保存时还让我进入 Home
 
-说明仍在使用1.2.0或更早版本。确认已导入并启用 `WorkBuddy-Skin-Lab-1.2.1-rc.1-Skill.zip`，然后完全退出并重新打开 WorkBuddy。
+说明仍在使用1.2.0或更早版本。确认已导入并启用 `WorkBuddy-Skin-Lab-1.2.1-Skill.zip`，然后完全退出并重新打开 WorkBuddy。
 
 ### Home 没有显示装饰模块
 

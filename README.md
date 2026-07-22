@@ -28,8 +28,8 @@
 
 最新版 Skill：
 
-- [下载 WorkBuddy-Skin-Lab-1.2.0-Skill.zip](https://github.com/sysxdc/workbuddy-skin-lab/releases/download/v1.2.0/WorkBuddy-Skin-Lab-1.2.0-Skill.zip)
-- [查看 v1.2.0 发布说明与 SHA-256](https://github.com/sysxdc/workbuddy-skin-lab/releases/tag/v1.2.0)
+- [下载 WorkBuddy-Skin-Lab-1.2.1-Skill.zip](https://github.com/sysxdc/workbuddy-skin-lab/releases/download/v1.2.1/WorkBuddy-Skin-Lab-1.2.1-Skill.zip)
+- [查看 v1.2.1 发布说明与 SHA-256](https://github.com/sysxdc/workbuddy-skin-lab/releases/tag/v1.2.1)
 
 最终用户不需要 Codex：在 WorkBuddy 的“技能 → 添加技能 → 上传技能”中导入
 当前正式版或草稿测试版的 `WorkBuddy-Skin-Lab-*-Skill.zip` 与 `NoneLinear-Image-0.1.0-Skill.zip`，之后所有需求、
