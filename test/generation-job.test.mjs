@@ -13,6 +13,7 @@ import {
   fixedManifest,
   publicHttpsUrl,
   run,
+  startForegroundHeartbeat,
   validateGenerationSpec,
 } from "../scripts/theme-generation-job.mjs";
 import { run as runControlledImage } from "../scripts/run-nonelinear-image.mjs";
@@ -33,6 +34,23 @@ const validSpec = {
     composerLabel: "纸灯陪伴装饰",
   },
 };
+
+test("前台生图心跳立即输出并可完整停止", () => {
+  const messages = [];
+  let tick = null;
+  let cleared = false;
+  const stop = startForegroundHeartbeat({
+    label: "五张派生素材",
+    writer: (message) => messages.push(message),
+    setIntervalFn: (callback, milliseconds) => { assert.equal(milliseconds, 15_000); tick = callback; return 7; },
+    clearIntervalFn: (timer) => { assert.equal(timer, 7); cleared = true; },
+  });
+  assert.match(messages[0], /五张派生素材.*当前窗口/);
+  tick();
+  assert.match(messages[1], /仍在等待/);
+  stop();
+  assert.equal(cleared, true);
+});
 
 test("凭据只接受批准的优先级和严格 NoneLinear HTTPS 主机", () => {
   assert.equal(credentialConfigured({ NONELINEAR_API_KEY: "nl-direct" }), true);

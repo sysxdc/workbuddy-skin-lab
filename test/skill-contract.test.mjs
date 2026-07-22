@@ -25,5 +25,5 @@ test("主 Skill 保持简短索引，安全门禁由固定参考文档完整承�
   assert.match(contract, /不得保存 API key、Authorization、大 base64/);
   assert.match(skill, /\$\{CODEBUDDY_SKILL_DIR\}/);
   assert.match(skill, /WorkBuddy 桌面端内部运行，不依赖 Codex/);
-  for (const phrase of ["run-derived", "前台命令", "并行生成五张", "660 秒", "不要把内部进度交给用户追问", "outcome_unknown"]) assert.match(contract, new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  for (const phrase of ["run-derived", "前台命令", "并行生成五张", "660 秒", "每15秒", "wait/read", "不能把“将等待自动通知”作为回复结束本轮", "保存当前主题（下次启动）", "preferredActiveId", "不要把内部进度交给用户追问", "outcome_unknown"]) assert.match(contract, new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });

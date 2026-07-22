@@ -612,6 +612,8 @@ function runtimeMain(payload) {
       <strong>WorkBuddy Skin Lab</strong>
       <span data-home-compatibility>Home 组件：等待首次进入</span>
       <label>切换主题<select data-setting="theme"></select></label>
+      <button data-action="save-theme" type="button">保存当前主题（下次启动）</button>
+      <span data-theme-save-status>切换只用于预览；点击上方按钮后才设为下次启动主题。</span>
       <label>首页主标题<input data-setting="home-title" type="text" maxlength="24"></label>
       <label>首页副标题<input data-setting="home-subtitle" type="text" maxlength="36"></label>
       <label>界面外观<select data-setting="appearance"><option value="auto">自动匹配图片</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
@@ -635,6 +637,14 @@ function runtimeMain(payload) {
     themeSelect.appendChild(option);
   }
   themeSelect.value = state.activeId;
+  const themeSaveStatus = dock.querySelector("[data-theme-save-status]");
+  const updateThemeSaveStatus = () => {
+    const preferredId = safeStorage.read().preferredActiveId;
+    themeSaveStatus.textContent = preferredId === state.activeId
+      ? `已保存“${themeById(state.activeId).name}”，下次启动将自动恢复。`
+      : "当前为预览状态；点击“保存当前主题”后才设为下次启动主题。";
+  };
+  updateThemeSaveStatus();
   const storedCompatibility = readCompatibility(state.activeId);
   writeCompatibility(state.activeId, storedCompatibility || { status: "pending", checkedAt: null, missing: [], modules: [] });
   const clampDockPosition = (position) => ({
@@ -703,6 +713,17 @@ function runtimeMain(payload) {
       for (const input of editor.querySelectorAll("input[data-text-key]")) input.value = moduleText(next.id, module)[input.dataset.textKey] || "";
     }
     syncModules();
+    updateThemeSaveStatus();
+  });
+  listen(dock.querySelector('[data-action="save-theme"]'), "click", () => {
+    const current = safeStorage.read();
+    current.preferredActiveId = state.activeId;
+    current.preferredActiveIdUpdatedAt = Date.now();
+    if (!safeStorage.write(current)) {
+      alert("WorkBuddy Skin Lab：无法保存当前主题，请先清理浏览器本地存储空间");
+      return;
+    }
+    updateThemeSaveStatus();
   });
   const saveHomeHeader = () => {
     const titleInput = dock.querySelector('[data-setting="home-title"]');

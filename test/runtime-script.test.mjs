@@ -29,6 +29,10 @@ test("生成的注入脚本包含控制面板和可清理状态", () => {
   assert.doesNotMatch(script, /换宠物|createPet|wb-skin-lab-pet/);
   assert.match(script, /data-setting="theme"/);
   assert.match(script, /切换主题/);
+  assert.match(script, /data-action="save-theme"/);
+  assert.match(script, /保存当前主题/);
+  assert.match(script, /preferredActiveId/);
+  assert.match(script, /下次启动将自动恢复/);
   assert.match(script, /option\.textContent = theme\.name/);
   assert.match(script, /nativeTextSnapshots/);
   assert.match(script, /home-header-title/);

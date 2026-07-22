@@ -34,7 +34,7 @@
 
 ## 作业命令
 
-作业默认位于 `%LOCALAPPDATA%\WorkBuddySkinLab\generation-jobs\<jobId>`。命令只输出 JSON。
+作业默认位于 `%LOCALAPPDATA%\WorkBuddySkinLab\generation-jobs\<jobId>`。stdout 只输出最终 JSON；长生图期间的安全心跳只写入 stderr，不影响结果解析。
 
 ```powershell
 node scripts/theme-generation-job.mjs resume
@@ -59,13 +59,12 @@ node scripts/theme-generation-job.mjs discard --job <jobId>
 作业，并返回 `progress`、`nextAction` 和 `requiresUser`；已接受主题会直接返回 `apply-theme`。正常流程由 Skill 在同一轮内部持续执行，
 用户不需要反复询问“继续”或“好了吗”。只有宿主任务真的中断后才重新运行 `resume`，且不得重新 init。
 
-`run-image` 与 `run-derived` 都是前台阻塞命令：调用工具时给出至少 660 秒等待时间，并持续等待同一个进程句柄。
+`run-image` 与 `run-derived` 都是前台阻塞命令：调用工具时给出至少 660 秒等待时间，命令每15秒向 stderr 输出安全心跳。若宿主工具返回 task ID、cell ID 或进程句柄，必须在当前助手轮次内立即调用对应 wait/read，并以不超过60秒的分段持续等待同一个句柄，直到成功、失败、超时或结果未知。不得回复“我将等待自动通知”后结束轮次。
 `run-derived` 先把五条调用以同一个 `batchId` 写入 `job.json`，再并行运行；每张完成时持续写回结果，全部结束后才输出最终 JSON。
 禁止 detached/background 启动、重复命令和另起轮询进程。若进程意外死亡，`resume` 会把遗留 `running` 调用改为
 `outcome_unknown / foreground_process_interrupted`，不会自动重试。
 
-接受主题后，最终目录永久保存在 `%LOCALAPPDATA%\WorkBuddySkinLab\themes\<themeId>`。随后显式执行一次
-`node src/cli.mjs apply --theme <themeId> --port 9223` 会把活动 ID 写入 `settings.json`；以后双击“开始使用”自动恢复。
+接受主题后，最终目录永久保存在 `%LOCALAPPDATA%\WorkBuddySkinLab\themes\<themeId>`。🎨 下拉框负责预览；点击“保存当前主题（下次启动）”把当前 ID 写入固定 localStorage key 的 `preferredActiveId`。以后双击“开始使用”时，CLI 通过回环 CDP 只读该 ID，经格式和已加载主题双重校验后写入 `settings.json` 并恢复。显式 `apply --theme` 的优先级最高。
 
 重试前用 `authorize --job <jobId> --call <role>` 只增加对应角色的一次调用额度。
 

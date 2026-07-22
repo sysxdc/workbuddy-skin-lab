@@ -21,7 +21,8 @@ allowed-tools: Read, Write, Bash
 1. 运行 `doctor`、`validate`、`status` 和 `node scripts/theme-generation-job.mjs resume`。
 2. 有未完成作业时只沿 `jobId` 和 `nextAction` 继续，不重新 `init`，不手改 job JSON。
 3. 除上传、背景、额外计费和最终接受确认外，在同一轮连续运行到下一个 `requiresUser: true`，不要把内部进度交给用户追问。
-4. 生图只在当前前台命令中运行。工具返回“仍在运行”或进程句柄时，继续等待同一个进程，不能启动后台进程、重复提交或让用户反复发送“继续”“好了吗”。
+4. 生图只在当前前台命令中运行。工具返回“仍在运行”、任务 ID 或进程句柄时，必须在同一轮立即调用对应的 wait/read 工具，每次等待不超过60秒并重复到终态；不能把“将等待自动通知”作为回复结束本轮。
+5. 过程消息不是用户门禁。只要 `requiresUser` 不是 `true`，就继续等待或执行下一步，不能启动后台进程、重复提交或让用户反复发送“继续”“好了吗”。
 
 ## 背景选择
 
@@ -37,7 +38,7 @@ allowed-tools: Read, Write, Bash
 
 1. 把五个固定角色的提示词写到同一作业目录的 `prompts/<role>.txt`。
 2. 只启动一次前台命令 `run-derived --prompt-dir <目录>`；它并行生成五张图片，并在五张全部成功、失败或结果未知后才退出。
-3. 为宿主命令设置至少 660 秒等待上限。等待期间不结束本轮对话、不轮询新进程、不向用户索要状态提问。
+3. 为宿主命令设置至少 660 秒等待上限。命令每15秒向 stderr 输出不含提示词、URL或密钥的前台心跳；等待期间不结束本轮对话、不轮询新进程、不向用户索要状态提问。
 4. 命令返回后立即继续下载、标准化和 `resume`，直到真正需要用户确认。
 
 若宿主意外中断，下一次 `resume` 会根据作业中的 `batchId`、开始时间和调用状态恢复；死亡的前台进程记为 `outcome_unknown`，等待用户决定是否新增授权。
@@ -65,7 +66,7 @@ node scripts/theme-generation-job.mjs preview --job <jobId> --role background
 
 主题初始状态为 `accepted-pending-home`。用户以后自然进入 Home 时，运行时才用白名单选择器探测真实锚点；尺寸合格后创建五个模块。探测失败时保持背景并显示“Home组件待兼容”，禁止猜选择器。
 
-`verify-home` 仍可用于高级验收，但不是保存主题的前置条件。🎨可拖动并记住位置。
+`verify-home` 仍可用于高级验收，但不是保存主题的前置条件。🎨可拖动并记住位置；下拉框用于预览，用户点击“保存当前主题（下次启动）”后，当前主题 ID 才成为启动偏好。下一次普通“开始使用”通过固定 CDP 读取该 ID，校验主题仍存在后同步到 `settings.json`。显式 `apply --theme` 始终优先。
 
 需要主动验收 Home 时，先运行 `probe-anchors`，再运行 `inspect-modules` / `verify-home`；具体门禁见 `references/MODULE_BOUNDARIES.md` 与 `docs/PRACTICE.md`。
 

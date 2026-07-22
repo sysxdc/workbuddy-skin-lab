@@ -24,6 +24,28 @@ const MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024;
 export const IMAGE_TIMEOUT_MS = 600_000;
 export const IMAGE_PROCESS_TIMEOUT_MS = 660_000;
 
+export function startForegroundHeartbeat({
+  label = "图片生成",
+  writer = (message) => process.stderr.write(message),
+  setIntervalFn = setInterval,
+  clearIntervalFn = clearInterval,
+} = {}) {
+  const safeLabel = String(label).replace(/[\r\n\t]+/g, " ").slice(0, 80);
+  const startedAt = Date.now();
+  writer(`[WorkBuddy Skin Lab] ${safeLabel}正在当前窗口运行；无需发送“继续”或“好了吗”。\n`);
+  const timer = setIntervalFn(() => {
+    const elapsed = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+    writer(`[WorkBuddy Skin Lab] ${safeLabel}仍在等待图片返回（${elapsed} 秒）；请保持当前窗口打开。\n`);
+  }, 15_000);
+  timer?.unref?.();
+  let stopped = false;
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    clearIntervalFn(timer);
+  };
+}
+
 function stateRoots(overrides = {}) {
   const state = resolveStatePaths();
   return {
@@ -468,11 +490,15 @@ async function runImage(options, roots, dependencies = {}) {
   await saveJob(root, job);
   let execution;
   let error = null;
+  const stopHeartbeat = dependencies.startHeartbeat
+    ? dependencies.startHeartbeat({ label: role === "background" ? "背景图片" : `${role} 素材` })
+    : dependencies.executeImageProcess ? () => {} : startForegroundHeartbeat({ label: role === "background" ? "背景图片" : `${role} 素材` });
   try {
     execution = await (dependencies.executeImageProcess
       ? dependencies.executeImageProcess({ role, args: invocation.args, timeoutMs: IMAGE_PROCESS_TIMEOUT_MS })
       : runProcess(runner.node, invocation.args, { maxOutput: 2 * 1024 * 1024, timeoutMs: IMAGE_PROCESS_TIMEOUT_MS }));
   } catch (caught) { error = caught; }
+  finally { stopHeartbeat(); }
   const result = finishImageCall(job, call, execution, error);
   await saveJob(root, job);
   return result;
@@ -509,18 +535,24 @@ async function runDerived(options, roots, dependencies = {}) {
     saveQueue = saveQueue.then(() => saveJob(root, job));
     return saveQueue;
   };
-  const results = await Promise.all(prepared.map(async (item) => {
-    let execution;
-    let error = null;
-    try {
-      execution = await (dependencies.executeImageProcess
-        ? dependencies.executeImageProcess({ role: item.role, args: item.invocation.args, timeoutMs: IMAGE_PROCESS_TIMEOUT_MS })
-        : runProcess(runner.node, item.invocation.args, { maxOutput: 2 * 1024 * 1024, timeoutMs: IMAGE_PROCESS_TIMEOUT_MS }));
-    } catch (caught) { error = caught; }
-    const result = finishImageCall(job, item.call, execution, error);
-    await persist();
-    return result;
-  }));
+  const stopHeartbeat = dependencies.startHeartbeat
+    ? dependencies.startHeartbeat({ label: `${prepared.length} 张派生素材并行生成` })
+    : dependencies.executeImageProcess ? () => {} : startForegroundHeartbeat({ label: `${prepared.length} 张派生素材并行生成` });
+  let results;
+  try {
+    results = await Promise.all(prepared.map(async (item) => {
+      let execution;
+      let error = null;
+      try {
+        execution = await (dependencies.executeImageProcess
+          ? dependencies.executeImageProcess({ role: item.role, args: item.invocation.args, timeoutMs: IMAGE_PROCESS_TIMEOUT_MS })
+          : runProcess(runner.node, item.invocation.args, { maxOutput: 2 * 1024 * 1024, timeoutMs: IMAGE_PROCESS_TIMEOUT_MS }));
+      } catch (caught) { error = caught; }
+      const result = finishImageCall(job, item.call, execution, error);
+      await persist();
+      return result;
+    }));
+  } finally { stopHeartbeat(); }
   await saveQueue;
   const completed = results.filter((result) => result.status === "completed").length;
   const outcomeUnknown = results.filter((result) => result.outcome === "unknown").length;

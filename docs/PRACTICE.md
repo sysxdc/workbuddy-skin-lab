@@ -17,7 +17,7 @@ npm test
 
 1. 若 `status` 无法连接，保存当前任务后运行 `.\scripts\apply.ps1 -Theme aurora-lab`；已有 CDP 会话则不重启。
 2. 背景与候选模块图片可以在任务页生成、预览和标准化；当前背景未经 `preview` 不得确认。
-3. 背景和五张派生素材都必须作为前台命令运行；五张派生素材用一个 `run-derived` 并行等待。不得 detached/background 启动，也不得让用户反复询问进度。
+3. 背景和五张派生素材都必须作为前台命令运行；五张派生素材用一个 `run-derived` 并行等待。确认每15秒存在安全心跳；工具返回任务句柄时必须在同一轮持续 wait/read 到终态，不得 detached/background 启动或以“等待自动通知”结束。
 4. NoneLinear 空输出、路径错误或前台进程意外死亡必须停在 `outcome_unknown`，不得自动重试或手改授权记录。
 5. 若计划 B 档转发点击，目标还必须为 `nativeClickable: true`，并完成单独风险确认。
 
@@ -45,7 +45,7 @@ node .\src\cli.mjs status --port 9223
 2. 运行 `.\scripts\pause.ps1`。
 3. 确认背景、dock、所有 `[data-wb-module]`、模块 click 转发和注入样式完全消失，原生控件恢复原状。
 4. 再次运行 `node .\src\cli.mjs apply --theme aurora-lab --port 9223`，确认模块位置、独立覆盖和状态可重复。
-5. 在 `🎨` 面板依次切换两个已保存主题，确认旧背景和素材仍可恢复；再对用户主题显式 apply，完全退出并再次运行“开始使用”，确认 `settings.json` 记录的最后主题自动恢复。
+5. 在 `🎨` 面板依次预览两个已保存主题，选择其中一个并点击“保存当前主题（下次启动）”；完全退出并再次运行“开始使用”，确认面板偏好经校验后同步到 `settings.json` 并自动恢复。再验证显式 apply 可以覆盖该偏好。
 
 ## 每轮验收表
 
