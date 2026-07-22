@@ -19,7 +19,7 @@ except ImportError:  # pragma: no cover - exercised by preflight in environments
 SPECS = {
     "background": {"size": (2048, 1152), "mode": "RGB", "max": 12 * 1024 * 1024},
     "hero": {"size": (1024, 1024), "mode": "RGBA", "max": 4 * 1024 * 1024},
-    "icon": {"size": (512, 512), "mode": "RGBA", "max": 1024 * 1024},
+    "icon": {"size": (1024, 1024), "mode": "RGBA", "max": 4 * 1024 * 1024},
     "composer": {"size": (512, 512), "mode": "RGBA", "max": 2 * 1024 * 1024},
 }
 

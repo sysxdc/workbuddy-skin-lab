@@ -22,8 +22,28 @@ test("规范化一个完整主题", () => {
   assert.equal(theme.ui.appearance, "light");
   assert.equal("pet" in theme, false);
   assert.deepEqual(theme.modules, []);
+  assert.deepEqual(theme.backgrounds, [{ id: "background-1", label: "默认背景", asset: "background.svg" }]);
+  assert.deepEqual(theme.copySets, []);
   assert.deepEqual(theme.homeHeader, { title: "测试工作台", subtitle: "在夜色里完成今天" });
   assert.deepEqual(theme.art, { focusX: 0.75, focusY: 0.4, safeArea: "right", taskMode: "banner" });
+});
+
+test("规范化三张背景和三套隔离文案", () => {
+  const baseModule = { id: "welcome", slot: "home-hero", order: 0, anchor: "scene-tabs", kind: "decorate", asset: "assets/welcome.png", box: { x: 0, y: 0, w: 1, h: 1 }, text: { title: "专注标题", subtitle: "专注说明" } };
+  const theme = validateThemeManifest({
+    schemaVersion: 1, id: "multi", name: "Multi", background: "background-1.jpg",
+    backgrounds: [1, 2, 3].map((number) => ({ id: `background-${number}`, label: `方案${number}`, asset: `background-${number}.jpg` })),
+    homeHeader: { title: "专注主页", subtitle: "专注副题" }, modules: [baseModule],
+    copySets: [
+      { id: "focus", label: "专注", homeHeader: { title: "专注主页", subtitle: "专注副题" }, modules: { welcome: { title: "专注标题", subtitle: "专注说明" } } },
+      { id: "relaxed", label: "轻松", homeHeader: { title: "轻松主页", subtitle: "轻松副题" }, modules: { welcome: { title: "轻松标题", subtitle: "轻松说明" } } },
+      { id: "energy", label: "活力", homeHeader: { title: "活力主页", subtitle: "活力副题" }, modules: { welcome: { title: "活力标题", subtitle: "活力说明" } } },
+    ],
+  });
+  assert.equal(theme.backgrounds.length, 3);
+  assert.deepEqual(theme.copySets.map(({ id, label }) => [id, label]), [["focus", "专注"], ["relaxed", "轻松"], ["energy", "活力"]]);
+  assert.equal(theme.copySets[1].modules.welcome.title, "轻松标题");
+  assert.throws(() => validateThemeManifest({ schemaVersion: 1, id: "bad", name: "Bad", background: "background-1.jpg", backgrounds: [{ id: "two", label: "错误", asset: "background-2.jpg" }] }), /backgrounds\[0\]/);
 });
 
 test("规范化固定组件槽位、自定义文字和 B 档点击转发", () => {
@@ -86,6 +106,7 @@ test("加载主题时验证真实素材", async () => {
   const loaded = await loadTheme(themeRoot);
   assert.equal(loaded.manifest.id, "valid");
   assert.match(loaded.backgroundPath, /background\.svg$/);
+  assert.equal(loaded.backgroundAssets.length, 1);
 });
 
 test("加载主题时逐个验证 module 素材", async () => {

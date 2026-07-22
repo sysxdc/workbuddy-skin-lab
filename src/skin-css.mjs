@@ -224,15 +224,15 @@ html[data-workbuddy-skin-lab] .wb-home-page .wb-home-composer__input-slot > sect
   background: color-mix(in srgb, var(--wb-surface) 90%, var(--wb-panel-base)) !important;
   backdrop-filter: blur(4px) saturate(1.03);
 }
-html[data-workbuddy-skin-lab][data-wb-page-mode="task"] .wb-cb-chat > [class*="_chatMessageContainer_"] {
+html[data-workbuddy-skin-lab][data-wb-page-mode="task"] [data-view-id="main-content"] {
   position: relative;
   isolation: isolate;
   color: var(--wb-protected-text) !important;
 }
-html[data-workbuddy-skin-lab][data-wb-page-mode="task"][data-wb-readability="on"] .wb-cb-chat > [class*="_chatMessageContainer_"]::before {
+html[data-workbuddy-skin-lab][data-wb-page-mode="task"][data-wb-readability="on"][data-wb-readability-anchor="ready"] [data-view-id="main-content"]::before {
   content: "";
   position: absolute;
-  z-index: -1;
+  z-index: 0;
   inset: 12px auto 18px 50%;
   width: min(960px, calc(100% - 48px));
   transform: translateX(-50%);
@@ -241,8 +241,9 @@ html[data-workbuddy-skin-lab][data-wb-page-mode="task"][data-wb-readability="on"
   background: color-mix(in srgb, var(--wb-surface) 74%, transparent);
   box-shadow: 0 10px 30px rgb(23 33 58 / 10%);
   backdrop-filter: blur(3px) saturate(1.02);
+  pointer-events: none;
 }
-html[data-workbuddy-skin-lab][data-wb-page-mode="task"] .wb-cb-chat > [class*="_chatMessageContainer_"] > * {
+html[data-workbuddy-skin-lab][data-wb-page-mode="task"] [data-view-id="main-content"] > * {
   position: relative;
   z-index: 1;
 }
@@ -298,10 +299,18 @@ html[data-workbuddy-skin-lab] [role="dialog"] { border-radius: var(--wb-radius) 
 #wb-skin-lab-dock[data-panel-side="right"] #wb-skin-lab-panel { left:0; }
 #wb-skin-lab-dock[data-panel-vertical="up"] #wb-skin-lab-panel { top:auto; bottom:46px; }
 #wb-skin-lab-panel.open { display:grid; gap:9px; }
+#wb-skin-lab-panel details { border:1px solid color-mix(in srgb,var(--wb-accent) 24%,transparent); border-radius:10px; overflow:hidden; }
+#wb-skin-lab-panel summary { padding:9px 10px; cursor:pointer; font-weight:700; background:color-mix(in srgb,var(--wb-surface) 82%,transparent); }
+#wb-skin-lab-panel .wb-panel-group { display:grid; gap:8px; padding:9px; }
 #wb-skin-lab-panel label { display:grid; gap:4px; color:color-mix(in srgb,var(--wb-text) 78%,transparent); }
 #wb-skin-lab-panel select, #wb-skin-lab-panel button, #wb-skin-lab-panel input { box-sizing:border-box; width:100%; min-height:32px; border:1px solid color-mix(in srgb,var(--wb-accent) 35%,transparent); border-radius:8px; background:color-mix(in srgb,var(--wb-surface) 84%,transparent); color:var(--wb-text); }
 #wb-skin-lab-panel select, #wb-skin-lab-panel button { cursor:pointer; }
 #wb-skin-lab-panel .wb-row { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+#wb-skin-lab-panel [data-background-options] { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; }
+#wb-skin-lab-panel [data-background-options] button { min-width:0; padding:3px; }
+#wb-skin-lab-panel [data-background-options] button[data-active="true"] { outline:2px solid var(--wb-accent); }
+#wb-skin-lab-panel [data-background-options] img { display:block; width:100%; aspect-ratio:16/9; border-radius:6px; object-fit:cover; }
+#wb-skin-lab-panel [data-background-options] span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 [data-wb-module] { position:relative; z-index:2; box-sizing:border-box; margin:0; padding:0; border:0; border-radius:0; color:var(--wb-protected-text); background-color:transparent; background-image:var(--wb-module-image); background-position:center; background-repeat:no-repeat; background-size:contain; box-shadow:none; font:13px/1.35 system-ui,sans-serif; pointer-events:none; overflow:hidden; transition:opacity .12s ease; }
 [data-wb-module][data-wb-visible="false"] { display:none !important; }
 [data-wb-module][data-wb-obscured="true"] { visibility:hidden !important; opacity:0 !important; pointer-events:none !important; }
@@ -326,6 +335,8 @@ html[data-workbuddy-skin-lab] [role="dialog"] { border-radius: var(--wb-radius) 
 [data-wb-module] .wb-module-badge { position:absolute; right:18px; top:50%; translate:0 -50%; padding:7px 12px; border-radius:999px; color:var(--wb-protected-text); background:color-mix(in srgb,var(--wb-panel-base) 78%,transparent); font-weight:650; }
 #wb-skin-lab-panel [data-module-row] { display:grid; grid-template-columns:1fr auto auto; gap:6px; align-items:center; }
 #wb-skin-lab-panel [data-module-row] button { width:auto; min-width:52px; }
+#wb-skin-lab-panel [data-module-image-row] { display:grid; grid-template-columns:1fr auto auto; gap:6px; align-items:center; }
+#wb-skin-lab-panel [data-module-image-row] button { width:auto; min-width:52px; }
 #wb-skin-lab-panel [data-module-editor] { display:grid; gap:6px; padding:8px; border:1px solid color-mix(in srgb,var(--wb-accent) 18%,transparent); border-radius:10px; }
 #wb-skin-lab-panel [data-module-fields] { display:grid; grid-template-columns:1fr; gap:6px; }
 ${moduleCss(themes)}`;

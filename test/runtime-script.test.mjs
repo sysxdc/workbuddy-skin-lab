@@ -10,10 +10,18 @@ const theme = {
   name: "测试主题",
   background: "background.svg",
   backgroundDataUrl: "data:image/svg+xml;base64,PHN2Zy8+",
+  backgrounds: [
+    { id: "background-1", label: "方案1", asset: "background-1.svg", dataUrl: "data:image/svg+xml;base64,PHN2Zy8+" },
+    { id: "background-2", label: "方案2", asset: "background-2.svg", dataUrl: "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=" },
+  ],
   colors: { accent: "#112233", secondary: "#445566", surface: "#101010", text: "#FEFEFE" },
   ui: { opacity: 0.8, blur: 16, radius: 12, appearance: "auto" },
   art: { focusX: 0.72, focusY: 0.45, safeArea: "left", taskMode: "ambient" },
   homeHeader: { title: "测试工作台", subtitle: "专注完成今天" },
+  copySets: [
+    { id: "focus", label: "专注", homeHeader: { title: "测试工作台", subtitle: "专注完成今天" }, modules: { "side-note": { title: "今日陪伴", subtitle: "慢一点也很好" } } },
+    { id: "relaxed", label: "轻松", homeHeader: { title: "轻松工作台", subtitle: "慢慢完成今天" }, modules: { "side-note": { title: "轻松陪伴", subtitle: "慢一点也很好" } } },
+  ],
   modules: [
     { id: "side-note", slot: "sidebar-note", order: 0, anchor: "sidebar", kind: "decorate", asset: "assets/side-note.svg", assetDataUrl: "data:image/svg+xml;base64,PHN2Zy8+", box: { x: 0, y: 0, w: 1, h: 1 }, mount: "prepend", minAnchor: { width: 220, height: 360 }, textLimits: { title: 32, subtitle: 72 }, requiredText: ["title"], text: { title: "今日陪伴", subtitle: "慢一点也很好" }, state: "default", action: null },
     { id: "help-float", slot: "composer-float", order: 0, anchor: "home-composer", kind: "floating", asset: "assets/help-float.svg", assetDataUrl: "data:image/svg+xml;base64,PHN2Zy8+", box: { x: 0.86, y: 0.01, w: 0.1, h: 0.22 }, mount: "overlay", minAnchor: { width: 520, height: 120 }, textLimits: { label: 24 }, requiredText: [], text: { label: "打开弹窗" }, state: "hover", action: { forwardTo: "dialog" } },
@@ -25,10 +33,16 @@ test("生成的注入脚本包含控制面板和可清理状态", () => {
   assert.match(script, /workbuddy-skin-lab:v1/);
   assert.match(script, /requestedId: activeId, activeId/);
   assert.doesNotMatch(script, /themes\.some\(\(theme\) => theme\.id === saved\.activeId\)/);
-  assert.match(script, /换背景/);
+  assert.match(script, /指定自己的图片/);
   assert.doesNotMatch(script, /换宠物|createPet|wb-skin-lab-pet/);
   assert.match(script, /data-setting="theme"/);
   assert.match(script, /切换主题/);
+  for (const group of ["主题与背景", "文案设置", "显示效果", "模块装饰", "恢复与重置"]) assert.match(script, new RegExp(group));
+  assert.match(script, /data-action="next-copy"/);
+  assert.match(script, /当前文案：/);
+  assert.match(script, /data-background-options/);
+  assert.match(script, /backgroundId/);
+  assert.match(script, /textByCopySet/);
   assert.match(script, /data-action="save-theme"/);
   assert.match(script, /保存当前主题/);
   assert.match(script, /preferredActiveId/);
@@ -142,7 +156,10 @@ test("CSS 使用 WorkBuddy 稳定锚点", () => {
   assert.match(css, /\.wb-home-page \.quick-actions__item/);
   assert.match(css, /\.wb-home-composer__input-slot/);
   assert.match(css, /data-wb-readability="on"/);
-  assert.match(css, /_chatMessageContainer_/);
+  assert.match(css, /data-wb-readability-anchor="ready"/);
+  assert.match(css, /data-view-id="main-content"/);
+  assert.match(css, /pointer-events:\s*none/);
+  assert.doesNotMatch(css, /_chatMessageContainer_/);
   assert.match(css, /:not\(:has\(section \[data-slate-editor/);
   assert.match(css, /linear-gradient\(180deg, transparent 58%/);
   assert.match(css, /var\(--wb-protected-surface\) 14%, transparent\) 76%/);

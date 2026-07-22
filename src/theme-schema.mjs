@@ -19,6 +19,8 @@ const MODULE_STATES = new Set(["default", "hover", "active"]);
 export const MODULE_SOFT_COUNT_LIMIT = 5;
 export const MODULE_SOFT_TOTAL_BYTES = 20 * 1024 * 1024;
 export const MODULE_HARD_TOTAL_BYTES = 100 * 1024 * 1024;
+export const BACKGROUND_SOFT_BYTES = 12 * 1024 * 1024;
+export const BACKGROUND_HARD_TOTAL_BYTES = 60 * 1024 * 1024;
 
 function record(value, label) {
   if (value == null) return {};
@@ -141,6 +143,49 @@ function normalizeHomeHeader(value) {
   return result;
 }
 
+function normalizeBackgrounds(value, background) {
+  if (value == null) return [{ id: "background-1", label: "默认背景", asset: background }];
+  if (!Array.isArray(value) || value.length < 1 || value.length > 3) throw new Error("backgrounds 必须包含 1 到 3 张背景");
+  const ids = new Set();
+  const assets = new Set();
+  const result = value.map((input, index) => {
+    const label = `backgrounds[${index}]`;
+    const data = record(input, label);
+    if (typeof data.id !== "string" || !ID.test(data.id)) throw new Error(`${label}.id 只能包含小写字母、数字和连字符`);
+    if (ids.has(data.id)) throw new Error(`backgrounds 中的 id 必须唯一：${data.id}`);
+    ids.add(data.id);
+    if (typeof data.label !== "string" || !data.label.trim() || data.label.trim().length > 24) throw new Error(`${label}.label 必须是 1 到 24 个字符`);
+    const asset = assetPath(data.asset, { required: true, label: `${label}.asset` });
+    if (assets.has(asset)) throw new Error(`backgrounds 中的 asset 必须唯一：${asset}`);
+    assets.add(asset);
+    return { id: data.id, label: data.label.trim(), asset };
+  });
+  if (result[0].asset !== background) throw new Error("background 必须与 backgrounds[0].asset 一致");
+  return result;
+}
+
+function normalizeCopySets(value, homeHeader, modules) {
+  if (value == null) return [];
+  if (!Array.isArray(value) || value.length < 1 || value.length > 3) throw new Error("copySets 必须包含 1 到 3 套文案");
+  const moduleById = new Map(modules.map((module) => [module.id, module]));
+  const ids = new Set();
+  return value.map((input, index) => {
+    const label = `copySets[${index}]`;
+    const data = record(input, label);
+    if (typeof data.id !== "string" || !ID.test(data.id) || ids.has(data.id)) throw new Error(`${label}.id 必须是唯一的安全 ID`);
+    ids.add(data.id);
+    if (typeof data.label !== "string" || !data.label.trim() || data.label.trim().length > 12) throw new Error(`${label}.label 必须是 1 到 12 个字符`);
+    const copyModules = record(data.modules, `${label}.modules`);
+    const normalizedModules = {};
+    for (const [moduleId, text] of Object.entries(copyModules)) {
+      const module = moduleById.get(moduleId);
+      if (!module) throw new Error(`${label}.modules.${moduleId} 不属于当前固定模块`);
+      normalizedModules[moduleId] = fixedModuleText(text, { text: module.textLimits, requiredText: module.requiredText }, `${label}.modules.${moduleId}`);
+    }
+    return { id: data.id, label: data.label.trim(), homeHeader: normalizeHomeHeader(data.homeHeader ?? homeHeader), modules: normalizedModules };
+  });
+}
+
 function inside(root, candidate) {
   const rel = relative(root, candidate);
   return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
@@ -165,11 +210,15 @@ export function validateThemeManifest(input) {
   if (!APPEARANCES.has(ui.appearance ?? "auto")) throw new Error("ui.appearance 必须是 auto、light 或 dark");
   if (!SAFE_AREAS.has(art.safeArea ?? "auto")) throw new Error("art.safeArea 必须是 auto、left、right、center 或 none");
   if (!TASK_MODES.has(art.taskMode ?? "auto")) throw new Error("art.taskMode 必须是 auto、ambient、banner 或 off");
+  const background = assetPath(data.background, { required: true, label: "background" });
+  const modules = normalizeModules(data.modules);
+  const homeHeader = normalizeHomeHeader(data.homeHeader);
   return {
     schemaVersion: THEME_SCHEMA_VERSION,
     id: data.id,
     name: data.name.trim(),
-    background: assetPath(data.background, { required: true, label: "background" }),
+    background,
+    backgrounds: normalizeBackgrounds(data.backgrounds, background),
     colors: normalizedColors,
     ui: {
       opacity: boundedNumber(ui.opacity, 0.82, 0.35, 1, "ui.opacity"),
@@ -183,8 +232,9 @@ export function validateThemeManifest(input) {
       safeArea: art.safeArea ?? "auto",
       taskMode: art.taskMode ?? "auto",
     },
-    homeHeader: normalizeHomeHeader(data.homeHeader),
-    modules: normalizeModules(data.modules),
+    homeHeader,
+    modules,
+    copySets: normalizeCopySets(data.copySets, homeHeader, modules),
   };
 }
 
@@ -202,7 +252,16 @@ export async function verifiedAsset(root, relativePath, label) {
 export async function loadTheme(themeDir) {
   const root = resolve(themeDir);
   const manifest = validateThemeManifest(JSON.parse(await readFile(resolve(root, "theme.json"), "utf8")));
-  const backgroundPath = await verifiedAsset(root, manifest.background, "background");
+  const backgroundAssets = [];
+  let backgroundBytes = 0;
+  for (const background of manifest.backgrounds) {
+    const path = await verifiedAsset(root, background.asset, `background ${background.id}`);
+    const size = (await lstat(path)).size;
+    backgroundBytes += size;
+    backgroundAssets.push({ ...background, path, size });
+  }
+  if (backgroundBytes > BACKGROUND_HARD_TOTAL_BYTES) throw new Error(`backgrounds 素材总大小不能超过 ${BACKGROUND_HARD_TOTAL_BYTES / 1024 / 1024} MB`);
+  const backgroundPath = backgroundAssets[0].path;
   const moduleAssets = [];
   let moduleBytes = 0;
   for (const module of manifest.modules) {
@@ -213,7 +272,8 @@ export async function loadTheme(themeDir) {
   }
   if (moduleBytes > MODULE_HARD_TOTAL_BYTES) throw new Error(`modules 素材总大小不能超过 ${MODULE_HARD_TOTAL_BYTES / 1024 / 1024} MB`);
   const warnings = [];
+  for (const background of backgroundAssets) if (background.size > BACKGROUND_SOFT_BYTES) warnings.push(`${background.label} 为 ${(background.size / 1024 / 1024).toFixed(1)} MB，建议不超过 12 MB`);
   if (manifest.modules.length > MODULE_SOFT_COUNT_LIMIT) warnings.push(`modules 有 ${manifest.modules.length} 个，建议每批不超过 ${MODULE_SOFT_COUNT_LIMIT} 个`);
   if (moduleBytes > MODULE_SOFT_TOTAL_BYTES) warnings.push(`modules 素材共 ${(moduleBytes / 1024 / 1024).toFixed(1)} MB，建议分批控制在 ${MODULE_SOFT_TOTAL_BYTES / 1024 / 1024} MB 内`);
-  return { root, manifest, backgroundPath, moduleAssets, warnings };
+  return { root, manifest, backgroundPath, backgroundAssets, moduleAssets, warnings };
 }

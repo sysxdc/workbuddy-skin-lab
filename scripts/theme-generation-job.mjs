@@ -85,6 +85,10 @@ async function loadJob(roots, jobId) {
   const job = JSON.parse(await readFile(join(root, "job.json"), "utf8"));
   if (job.version !== JOB_VERSION || job.id !== jobId) throw new Error("job.json 无效");
   job.backgroundMode ??= job.reference ? "edit" : "generate";
+  job.confirmations ??= { upload: false, background: false, final: false };
+  job.confirmations.generation ??= Boolean(job.confirmations.background);
+  job.confirmationTimes ??= { upload: null, background: null, final: null };
+  job.confirmationTimes.generation ??= null;
   job.generation ??= {};
   job.generation.timeoutMs ??= IMAGE_TIMEOUT_MS;
   let reconciled = false;
@@ -261,7 +265,7 @@ export function validateGenerationSpec(input) {
   const focusY = input.art?.focusY;
   if (![focusX, focusY].every((value) => Number.isFinite(value) && value >= 0 && value <= 1)) throw new Error("art focus 必须在 0 到 1");
   if (!["auto", "left", "right", "center", "none"].includes(input.art?.safeArea)) throw new Error("art.safeArea 无效");
-  return {
+  const normalized = {
     template: TEMPLATE_VERSION,
     name: input.name.trim(), colors,
     art: { focusX, focusY, safeArea: input.art.safeArea },
@@ -272,22 +276,49 @@ export function validateGenerationSpec(input) {
       composerLabel: input.copy.composerLabel.trim(),
     },
   };
+  const requestedSets = input.copySets;
+  normalized.copySets = requestedSets == null
+    ? [
+      { id: "focus", label: "专注", copy: normalized.copy },
+      { id: "relaxed", label: "轻松", copy: normalized.copy },
+      { id: "energy", label: "活力", copy: normalized.copy },
+    ]
+    : requestedSets.map((set, index) => {
+      const expected = [["focus", "专注"], ["relaxed", "轻松"], ["energy", "活力"]][index];
+      if (!expected || set?.id !== expected[0] || set?.label !== expected[1]) throw new Error("copySets 必须依次为 focus/专注、relaxed/轻松、energy/活力");
+      const item = validateGenerationSpec({ ...input, copy: set.copy, copySets: undefined });
+      return { id: expected[0], label: expected[1], copy: item.copy };
+    });
+  if (normalized.copySets.length !== 3) throw new Error("copySets 必须正好包含专注、轻松、活力三套文案");
+  return normalized;
 }
 
-export function fixedManifest(spec, id) {
+export function fixedManifest(spec, id, backgroundCount = 3) {
   const module = (moduleId, slot, order, anchor, kind, asset, box, text) => ({ id: moduleId, slot, order, anchor, kind, asset, box, text });
   const manifest = {
-    schemaVersion: 1, id, name: spec.name, background: "background.jpg", colors: spec.colors, homeHeader: spec.copy.homeHeader,
+    schemaVersion: 1, id, name: spec.name, background: "background-1.jpg",
+    backgrounds: Array.from({ length: backgroundCount }, (_, index) => ({ id: `background-${index + 1}`, label: backgroundCount === 1 ? "默认背景" : `方案${index + 1}`, asset: `background-${index + 1}.jpg` })),
+    colors: spec.colors, homeHeader: spec.copySets[0].copy.homeHeader,
     ui: { opacity: 0.82, blur: 20, radius: 16, appearance: "auto" },
     art: { focusX: spec.art.focusX, focusY: spec.art.focusY, safeArea: spec.art.safeArea, taskMode: "ambient" },
     modules: [
-      module("home-welcome", "home-hero", 0, "scene-tabs", "decorate", "assets/home-welcome.png", { x: 0, y: 0, w: 1, h: 1 }, spec.copy.hero),
-      module("scene-daily", "scene-icon", 0, "scene-tabs", "icon-swap", "assets/scene-daily.png", { x: 0, y: 0, w: 1, h: 1 }, { title: spec.copy.scenes.daily.title }),
-      module("scene-code", "scene-icon", 1, "scene-tabs", "icon-swap", "assets/scene-code.png", { x: 0, y: 0, w: 1, h: 1 }, { title: spec.copy.scenes.code.title }),
-      module("scene-design", "scene-icon", 2, "scene-tabs", "icon-swap", "assets/scene-design.png", { x: 0, y: 0, w: 1, h: 1 }, { title: spec.copy.scenes.design.title }),
-      module("composer-companion", "composer-float", 0, "home-composer", "floating", "assets/composer-companion.png", { x: 0.86, y: 0.01, w: 0.1, h: 0.22 }, { label: spec.copy.composerLabel }),
+      module("home-welcome", "home-hero", 0, "scene-tabs", "decorate", "assets/home-welcome.png", { x: 0, y: 0, w: 1, h: 1 }, spec.copySets[0].copy.hero),
+      module("scene-daily", "scene-icon", 0, "scene-tabs", "icon-swap", "assets/scene-daily.png", { x: 0, y: 0, w: 1, h: 1 }, { title: spec.copySets[0].copy.scenes.daily.title }),
+      module("scene-code", "scene-icon", 1, "scene-tabs", "icon-swap", "assets/scene-code.png", { x: 0, y: 0, w: 1, h: 1 }, { title: spec.copySets[0].copy.scenes.code.title }),
+      module("scene-design", "scene-icon", 2, "scene-tabs", "icon-swap", "assets/scene-design.png", { x: 0, y: 0, w: 1, h: 1 }, { title: spec.copySets[0].copy.scenes.design.title }),
+      module("composer-companion", "composer-float", 0, "home-composer", "floating", "assets/composer-companion.png", { x: 0.86, y: 0.01, w: 0.1, h: 0.22 }, { label: spec.copySets[0].copy.composerLabel }),
     ],
   };
+  manifest.copySets = spec.copySets.map((set) => ({
+    id: set.id, label: set.label, homeHeader: set.copy.homeHeader,
+    modules: {
+      "home-welcome": set.copy.hero,
+      "scene-daily": { title: set.copy.scenes.daily.title },
+      "scene-code": { title: set.copy.scenes.code.title },
+      "scene-design": { title: set.copy.scenes.design.title },
+      "composer-companion": { label: set.copy.composerLabel },
+    },
+  }));
   validateThemeManifest(manifest);
   return manifest;
 }
@@ -310,16 +341,16 @@ async function initialize(options, roots) {
   if (requestedMode && !["edit", "direct"].includes(requestedMode)) throw new Error("reference-mode 必须是 edit 或 direct");
   if (requestedMode && !reference) throw new Error("reference-mode 只能与 --reference 一起使用");
   const backgroundMode = reference ? (requestedMode || "edit") : "generate";
-  const callsAuthorized = Object.fromEntries(IMAGE_ROLES.map((role) => [role, role === "background" && backgroundMode !== "direct" ? 1 : 0]));
+  const callsAuthorized = Object.fromEntries(IMAGE_ROLES.map((role) => [role, 0]));
   const job = {
     version: JOB_VERSION, id, template: TEMPLATE_VERSION, name, prompt, status: "initialized",
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), reference, backgroundMode,
     generation: { model: IMAGE_MODEL, quality: IMAGE_QUALITY, responseFormat: "url", timeoutMs: IMAGE_TIMEOUT_MS, roles: Object.fromEntries(IMAGE_ROLES.map((role) => [role, roleSpec(role)])) },
-    confirmations: { upload: false, background: false, final: false }, confirmationTimes: { upload: null, background: null, final: null },
+    confirmations: { upload: false, generation: false, background: false, final: false }, confirmationTimes: { upload: null, generation: null, background: null, final: null },
     callsAuthorized, calls: [], outputs: {}, generationSpec: null, theme: null, needsBuild: true, homeProof: null, verification: null,
   };
   await atomicJson(join(root, "job.json"), job);
-  return { status: "completed", jobId: id, path: root, backgroundMode, next: reference?.kind === "local" ? "confirm-upload" : backgroundMode === "direct" ? "ingest-background" : "run-background" };
+  return { status: "completed", jobId: id, path: root, backgroundMode, next: reference?.kind === "local" ? "confirm-upload" : "confirm-generation" };
 }
 
 async function preflight(options) {
@@ -350,6 +381,12 @@ async function confirmGate(options, roots) {
   const { root, job } = await loadJob(roots, options.job);
   const gate = options.gate;
   if (gate === "upload") job.confirmations.upload = true;
+  else if (gate === "generation") {
+    if (job.confirmations.generation) throw new Error("本作业的完整调用量已经确认");
+    job.confirmations.generation = true;
+    for (const role of IMAGE_ROLES) job.callsAuthorized[role] = role === "background" && job.backgroundMode === "direct" ? 0 : 1;
+    job.confirmations.background = true;
+  }
   else if (gate === "background") {
     if (job.confirmations.background) throw new Error("背景已经确认；只有重新生成背景后才能再次授权派生素材");
     if (!job.outputs.background?.normalized) throw new Error("确认背景前必须先准备并标准化背景");
@@ -362,8 +399,8 @@ async function confirmGate(options, roots) {
   } else if (gate === "final") {
     if (!job.confirmations.background || !IMAGE_ROLES.every((role) => job.outputs?.[role]?.normalized)) throw new Error("最终确认前必须完成全部素材并确认背景");
     job.confirmations.final = true;
-  } else throw new Error("gate 必须是 upload、background 或 final");
-  job.confirmationTimes ??= { upload: null, background: null, final: null };
+  } else throw new Error("gate 必须是 upload、generation、background 或 final");
+  job.confirmationTimes ??= { upload: null, generation: null, background: null, final: null };
   job.confirmationTimes[gate] = new Date().toISOString();
   await saveJob(root, job);
   return { status: "completed", gate };
@@ -376,7 +413,7 @@ async function authorizeRetry(options, roots) {
   if (role === "background" && job.backgroundMode === "direct") throw new Error("direct 模式不产生背景生图调用，不能授权背景重试");
   const attempts = job.calls.filter((call) => call.role === role).length;
   if (attempts < job.callsAuthorized[role]) throw new Error(`${role} 仍有尚未使用的调用授权`);
-  if (role !== "background" && !job.confirmations.background) throw new Error("背景未确认，不能授权派生素材调用");
+  if (!job.confirmations.generation) throw new Error("尚未确认完整调用量，不能授权重试");
   job.callsAuthorized[role] += 1;
   job.confirmations.final = false;
   if (job.confirmationTimes) job.confirmationTimes.final = null;
@@ -424,10 +461,12 @@ async function imageRunner(options) {
 
 async function imageInvocation(job, role, prompt, runner) {
   const spec = roleSpec(role);
-  const referenceUrl = role === "background" ? job.reference?.url : (job.outputs.background?.url || job.reference?.url);
+  const referenceUrl = role === "background" ? job.reference?.url : (job.outputs.background?.candidates?.[0]?.url || job.outputs.background?.url || job.reference?.url);
   if (job.reference?.kind === "local" && role === "background" && !referenceUrl) throw new Error("本地参考图尚未上传");
   if (referenceUrl) await assertPublicDns(publicHttpsUrl(referenceUrl));
-  const imageArgs = ["--model", IMAGE_MODEL, "--prompt", prompt, "--size", spec.size, "--quality", IMAGE_QUALITY, "--response-format", "url"];
+  const safePrompt = `${prompt}\nNo text, letters, typography, UI frames, WorkBuddy logos, or watermarks.`;
+  const imageArgs = ["--model", IMAGE_MODEL, "--prompt", safePrompt, "--size", spec.size, "--quality", IMAGE_QUALITY, "--response-format", "url"];
+  if (role === "background") imageArgs.push("--n", "3");
   if (referenceUrl) imageArgs.push("--operation", "edit", "--image", publicHttpsUrl(referenceUrl));
   return { args: [runner.adapter, "--skill-script", runner.skillScript, "--", ...imageArgs], spec };
 }
@@ -461,14 +500,25 @@ function finishImageCall(job, call, execution, error = null) {
     call.code = parsed.code || "unknown_error";
     return { status: "failed", role: call.role, code: call.code, error: redactSecrets(parsed.error || "NoneLinear 生图失败").slice(0, 500) };
   }
-  let url;
-  try { url = publicHttpsUrl(parsed.images?.[0]?.url); } catch {
+  let urls;
+  try { urls = (parsed.images || []).map((image) => publicHttpsUrl(image?.url)); } catch {
     call.status = "failed";
     call.code = "no_image_output";
     return { status: "failed", role: call.role, code: call.code, error: "NoneLinear 未返回可用图片" };
   }
+  const expected = call.role === "background" ? 3 : 1;
+  if (urls.length !== expected) {
+    call.status = "failed";
+    call.code = "incomplete_image_output";
+    return { status: "failed", role: call.role, code: call.code, error: `NoneLinear 应返回 ${expected} 张图片，实际 ${urls.length} 张；不会自动补图或重试` };
+  }
   call.status = "completed";
-  job.outputs[call.role] = { url, requestId: call.requestId, downloaded: null, normalized: null, previewedAt: null, sourceMode: call.role === "background" ? job.backgroundMode : "generated" };
+  if (call.role === "background") {
+    job.outputs.background = { candidates: urls.map((url, index) => ({ id: `background-${index + 1}`, label: `方案${index + 1}`, url, downloaded: null, normalized: null })), url: urls[0], requestId: call.requestId, downloaded: null, normalized: null, previewedAt: null, sourceMode: job.backgroundMode };
+    return { status: "completed", role: call.role, urls, defaultUrl: urls[0], requestId: call.requestId };
+  }
+  const url = urls[0];
+  job.outputs[call.role] = { url, requestId: call.requestId, downloaded: null, normalized: null, previewedAt: null, sourceMode: "generated" };
   return { status: "completed", role: call.role, url, requestId: call.requestId };
 }
 
@@ -479,7 +529,7 @@ async function runImage(options, roots, dependencies = {}) {
   if (role === "background" && job.backgroundMode === "direct") throw new Error("direct 模式直接使用参考图，不允许发起背景生图调用");
   const attempts = job.calls.filter((call) => call.role === role).length;
   if (attempts >= job.callsAuthorized[role]) throw new Error(`${role} 没有新的计费调用授权`);
-  if (role !== "background" && !job.confirmations.background) throw new Error("派生素材必须在用户确认背景并授权 5 次调用后生成");
+  if (!job.confirmations.generation) throw new Error("生图前必须一次确认完整调用量");
   if (!options["prompt-file"] || !options["skill-script"]) throw new Error("run-image 需要 --prompt-file 和 --skill-script");
   const prompt = (await readFile(resolve(options["prompt-file"]), "utf8")).trim();
   if (!prompt) throw new Error("图片提示词不能为空");
@@ -506,7 +556,7 @@ async function runImage(options, roots, dependencies = {}) {
 
 async function runDerived(options, roots, dependencies = {}) {
   const { root, job } = await loadJob(roots, options.job);
-  if (!job.confirmations.background) throw new Error("并行生成派生素材前必须先确认背景并授权 5 次调用");
+  if (!job.confirmations.generation) throw new Error("并行生成前必须一次确认完整调用量");
   if (!options["prompt-dir"] || !options["skill-script"]) throw new Error("run-derived 需要 --prompt-dir 和 --skill-script");
   const promptDir = resolve(options["prompt-dir"]);
   if (!(await stat(promptDir).catch(() => null))?.isDirectory()) throw new Error("prompt-dir 不是有效目录");
@@ -566,12 +616,20 @@ async function ingest(options, roots, dependencies = {}) {
   const { root, job } = await loadJob(roots, options.job);
   const role = options.role;
   const spec = roleSpec(role);
+  if (!job.confirmations.generation) throw new Error("准备图片前必须一次确认完整调用量");
   let output = job.outputs[role];
-  let sourcePath;
-  let downloaded = null;
+  const normalizer = resolve(options.normalizer || join(dirname(fileURLToPath(import.meta.url)), "normalize-generated-image.py"));
+  const normalizeOne = async (sourcePath, normalizedPath) => {
+    const normalized = await runProcess(options.python || "python", [normalizer, sourcePath, normalizedPath, "--kind", spec.kind], { maxOutput: 32_768 });
+    const parsed = processResult(normalized.stdout, "normalize-generated-image");
+    if (parsed.status !== "completed" || normalized.code !== 0) throw new Error(redactSecrets(parsed.error || "图片标准化失败").slice(0, 500));
+    return parsed;
+  };
   if (role === "background" && job.backgroundMode === "direct") {
     if (!job.reference) throw new Error("direct 模式缺少参考图");
-    output ??= { url: job.reference.url || null, requestId: null, downloaded: null, normalized: null, previewedAt: null, sourceMode: "direct" };
+    output ??= { candidates: [], url: job.reference.url || null, requestId: null, downloaded: null, normalized: null, previewedAt: null, sourceMode: "direct" };
+    let sourcePath;
+    let downloaded = null;
     if (job.reference.kind === "local") {
       if (!job.confirmations.upload || !job.reference.url) throw new Error("本地参考图必须先确认上传并取得公开 URL");
       sourcePath = resolve(job.reference.path);
@@ -584,20 +642,49 @@ async function ingest(options, roots, dependencies = {}) {
       sourcePath = downloaded.path;
       output.url = job.reference.url;
     }
-  } else {
-    if (!output?.url) throw new Error(`${role} 没有可下载的生成结果`);
-    downloaded = await (dependencies.downloadImage || downloadImage)(output.url, join(root, "downloads", role));
-    sourcePath = downloaded.path;
+    const normalizedPath = join(root, "normalized", "background-1.jpg");
+    const parsed = await normalizeOne(sourcePath, normalizedPath);
+    output.candidates = [{ id: "background-1", label: "默认背景", url: output.url, downloaded: downloaded ? relative(root, downloaded.path) : null, normalized: relative(root, normalizedPath) }];
+    output.downloaded = output.candidates[0].downloaded;
+    output.normalized = output.candidates[0].normalized;
+    output.previewedAt = new Date().toISOString();
+    job.outputs.background = output;
+    job.needsBuild = true;
+    job.verification = null;
+    job.confirmations.final = false;
+    await saveJob(root, job);
+    return { status: "completed", role, paths: [normalizedPath], width: parsed.width, height: parsed.height, sizes: [parsed.size] };
   }
-  const normalizedPath = join(root, "normalized", role === "background" ? "background.jpg" : `${role}.png`);
-  const normalizer = resolve(options.normalizer || join(dirname(fileURLToPath(import.meta.url)), "normalize-generated-image.py"));
-  const normalized = await runProcess(options.python || "python", [normalizer, sourcePath, normalizedPath, "--kind", spec.kind], { maxOutput: 32_768 });
-  const parsed = processResult(normalized.stdout, "normalize-generated-image");
-  if (parsed.status !== "completed" || normalized.code !== 0) return { status: "failed", code: parsed.code || "normalize_error", error: redactSecrets(parsed.error || "图片标准化失败").slice(0, 500) };
-  output.downloaded = downloaded ? relative(root, downloaded.path) : null;
+  if (role === "background") {
+    if (!Array.isArray(output?.candidates) || output.candidates.length !== 3) throw new Error("背景必须完整返回三张图片，不能自动补图");
+    const downloads = await Promise.all(output.candidates.map((candidate, index) => (dependencies.downloadImage || downloadImage)(candidate.url, join(root, "downloads", `background-${index + 1}`))));
+    const normalizedItems = [];
+    for (let index = 0; index < downloads.length; index += 1) {
+      const normalizedPath = join(root, "normalized", `background-${index + 1}.jpg`);
+      const parsed = await normalizeOne(downloads[index].path, normalizedPath);
+      normalizedItems.push({ path: normalizedPath, parsed });
+      output.candidates[index].downloaded = relative(root, downloads[index].path);
+      output.candidates[index].normalized = relative(root, normalizedPath);
+    }
+    output.url = output.candidates[0].url;
+    output.downloaded = output.candidates[0].downloaded;
+    output.normalized = output.candidates[0].normalized;
+    output.previewedAt = new Date().toISOString();
+    output.sourceMode ??= job.backgroundMode;
+    job.outputs.background = output;
+    job.needsBuild = true;
+    job.verification = null;
+    await saveJob(root, job);
+    return { status: "completed", role, paths: normalizedItems.map((item) => item.path), width: normalizedItems[0].parsed.width, height: normalizedItems[0].parsed.height, sizes: normalizedItems.map((item) => item.parsed.size), default: normalizedItems[0].path };
+  }
+  if (!output?.url) throw new Error(`${role} 没有可下载的生成结果`);
+  const downloaded = await (dependencies.downloadImage || downloadImage)(output.url, join(root, "downloads", role));
+  const normalizedPath = join(root, "normalized", `${role}.png`);
+  const parsed = await normalizeOne(downloaded.path, normalizedPath);
+  output.downloaded = relative(root, downloaded.path);
   output.normalized = relative(root, normalizedPath);
   output.previewedAt = null;
-  output.sourceMode ??= role === "background" ? job.backgroundMode : "generated";
+  output.sourceMode ??= "generated";
   job.outputs[role] = output;
   job.needsBuild = true;
   job.verification = null;
@@ -614,16 +701,20 @@ async function previewOutput(options, roots) {
   if (role !== "background") throw new Error("首版 preview 只支持 background");
   const output = job.outputs.background;
   if (!output?.normalized) throw new Error("背景尚未标准化，不能展示");
-  const path = jobFile(root, output.normalized, "background.normalized");
-  const info = await stat(path);
-  if (!info.isFile() || info.size < 1) throw new Error("背景预览文件无效");
+  const candidates = output.candidates?.length ? output.candidates : [{ id: "background-1", label: "默认背景", url: output.url, normalized: output.normalized }];
+  const previews = [];
+  for (const candidate of candidates) {
+    const path = jobFile(root, candidate.normalized, `${candidate.id}.normalized`);
+    const info = await stat(path);
+    if (!info.isFile() || info.size < 1) throw new Error("背景预览文件无效");
+    const url = candidate.url ? publicHttpsUrl(candidate.url) : null;
+    previews.push({ id: candidate.id, label: candidate.label, path, url, markdown: url ? `![${candidate.label}](${url})` : null });
+  }
   output.previewedAt = new Date().toISOString();
   await saveJob(root, job);
-  const url = output.url ? publicHttpsUrl(output.url) : null;
   return {
-    status: "completed", role, sourceMode: output.sourceMode || job.backgroundMode, path, url,
-    markdown: url ? `![WorkBuddy 背景预览](${url})` : null,
-    instruction: "请查看上方图片或打开返回的地址；满意后再明确确认背景。",
+    status: "completed", role, sourceMode: output.sourceMode || job.backgroundMode, previews, defaultId: previews[0].id,
+    instruction: "已默认选择方案1并继续；主题完成后可在 🎨 → 主题与背景中随时切换，不会再次生图。",
     previewedAt: output.previewedAt,
   };
 }
@@ -635,12 +726,16 @@ async function buildTheme(options, roots, homeProof = null) {
   for (const role of IMAGE_ROLES) if (!job.outputs[role]?.normalized) throw new Error(`${role} 尚未标准化`);
   const suffix = createHash("sha256").update(job.id).digest("hex").slice(0, 8);
   const id = job.theme?.id ?? `${slugify(spec.name)}-${suffix}`;
-  const manifest = fixedManifest(spec, id);
+  const backgroundCount = job.outputs.background.candidates?.length || 1;
+  const manifest = fixedManifest(spec, id, backgroundCount);
   const temporary = join(roots.storeRoot, `.tmp-${id}-${process.pid}-${randomBytes(3).toString("hex")}`);
   const destination = join(roots.storeRoot, id);
   await mkdir(join(temporary, "assets"), { recursive: true });
   try {
-    await copyFile(jobFile(root, job.outputs.background.normalized, "background.normalized"), join(temporary, "background.jpg"));
+    for (let index = 0; index < backgroundCount; index += 1) {
+      const candidate = job.outputs.background.candidates?.[index] || { normalized: job.outputs.background.normalized };
+      await copyFile(jobFile(root, candidate.normalized, `background-${index + 1}.normalized`), join(temporary, `background-${index + 1}.jpg`));
+    }
     for (const role of DERIVED_ROLES) await copyFile(jobFile(root, job.outputs[role].normalized, `${role}.normalized`), join(temporary, "assets", `${role}.png`));
     await writeFile(join(temporary, "theme.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
     for (const item of [manifest.background, ...manifest.modules.map((module) => module.asset)]) {
@@ -650,7 +745,7 @@ async function buildTheme(options, roots, homeProof = null) {
     const loaded = await loadTheme(temporary);
     const backgroundInfo = await stat(join(temporary, manifest.background));
     job.validation = {
-      checkedAt: new Date().toISOString(), background: { asset: manifest.background, size: backgroundInfo.size },
+      checkedAt: new Date().toISOString(), background: { asset: manifest.background, size: backgroundInfo.size }, backgrounds: loaded.backgroundAssets.map(({ id: backgroundId, asset, size }) => ({ id: backgroundId, asset, size })),
       modules: loaded.moduleAssets.map(({ id: moduleId, size }) => ({ id: moduleId, size })),
       moduleBytes: loaded.moduleAssets.reduce((total, item) => total + item.size, 0), warnings: loaded.warnings,
     };
@@ -705,6 +800,7 @@ function nextFor(job) {
   if (running.length) return { nextAction: "wait-running", requiresUser: false, batchId: running.find((call) => call.batchId)?.batchId ?? null, roles: running.map((call) => call.role) };
   if (job.reference?.kind === "local" && !job.confirmations.upload) return { nextAction: "confirm-upload", requiresUser: true };
   if (job.reference?.kind === "local" && !job.reference.url) return { nextAction: "upload-reference", requiresUser: false };
+  if (!job.confirmations.generation) return { nextAction: "confirm-generation", requiresUser: true, calls: job.backgroundMode === "direct" ? 5 : 6, backgroundOutputs: job.backgroundMode === "direct" ? 1 : 3 };
   const nextRole = (role) => {
     const output = job.outputs?.[role];
     if (output?.url && !output.normalized) return { nextAction: `ingest-${role}`, requiresUser: false };
@@ -718,8 +814,6 @@ function nextFor(job) {
   if (job.backgroundMode === "direct" && !job.outputs?.background?.normalized) return { nextAction: "ingest-background", requiresUser: false };
   const background = nextRole("background");
   if (background) return background;
-  if (!job.outputs.background.previewedAt) return { nextAction: "preview-background", requiresUser: false };
-  if (!job.confirmations.background) return { nextAction: "confirm-background", requiresUser: true };
   const batchCandidates = DERIVED_ROLES.filter((role) => {
     if (job.outputs?.[role]?.url || job.outputs?.[role]?.normalized) return false;
     const attempts = job.calls.filter((call) => call.role === role).length;
@@ -808,7 +902,7 @@ async function reopenVerification(options, roots) {
 
 async function acceptJob(options, roots) {
   let { root, job } = await loadJob(roots, options.job);
-  if (!job.confirmations.final || !job.confirmations.background || !job.outputs.background?.previewedAt) throw new Error("accept 前必须展示并确认背景，再完成最终确认");
+  if (!job.confirmations.generation || !job.confirmations.final) throw new Error("accept 前必须确认完整调用量并完成最终确认");
   if (!IMAGE_ROLES.every((role) => job.outputs?.[role]?.normalized)) throw new Error("accept 前必须完成全部六张素材");
   if (!job.theme?.path || job.needsBuild) {
     await buildTheme(options, roots, null);
@@ -822,6 +916,7 @@ async function acceptJob(options, roots) {
     output.url = null;
     output.downloaded = null;
     output.normalized = null;
+    for (const candidate of output.candidates || []) { candidate.url = null; candidate.downloaded = null; candidate.normalized = null; }
   }
   if (job.reference) job.reference.url = null;
   await rm(join(root, "downloads"), { recursive: true, force: true });
@@ -847,6 +942,7 @@ async function discardJob(options, roots) {
     output.url = null;
     output.downloaded = null;
     output.normalized = null;
+    for (const candidate of output.candidates || []) { candidate.url = null; candidate.downloaded = null; candidate.normalized = null; }
   }
   if (job.reference) job.reference.url = null;
   await rm(join(root, "downloads"), { recursive: true, force: true });
@@ -858,7 +954,7 @@ async function discardJob(options, roots) {
 
 function safeStatus(job) {
   const homeCompatibility = job.status === "accepted-home-compatible" ? "compatible" : job.status === "accepted-home-incompatible" ? "incompatible" : job.status === "accepted-pending-home" ? "pending" : null;
-  return { status: "completed", jobId: job.id, jobStatus: job.status, backgroundMode: job.backgroundMode, homeCompatibility, template: job.template, generation: job.generation, confirmations: job.confirmations, confirmationTimes: job.confirmationTimes, callsAuthorized: job.callsAuthorized, calls: job.calls.map(({ role, model, quality, size, status, code, requestId, batchId, startedAt, finishedAt }) => ({ role, model, quality, size, status, code, requestId, batchId, startedAt, finishedAt })), outputs: Object.fromEntries(Object.entries(job.outputs).map(([role, output]) => [role, output ? { downloaded: output.downloaded, normalized: output.normalized, previewedAt: output.previewedAt ?? null, sourceMode: output.sourceMode ?? null, hasPendingUrl: Boolean(output.url) } : null])), needsBuild: job.needsBuild ?? Boolean(!job.theme?.path), validation: job.validation ?? null, homeProof: job.homeProof ?? null, verification: job.verification ?? null, theme: job.theme, ...nextFor(job), progress: progressFor(job) };
+  return { status: "completed", jobId: job.id, jobStatus: job.status, backgroundMode: job.backgroundMode, homeCompatibility, template: job.template, generation: job.generation, confirmations: job.confirmations, confirmationTimes: job.confirmationTimes, callsAuthorized: job.callsAuthorized, calls: job.calls.map(({ role, model, quality, size, status, code, requestId, batchId, startedAt, finishedAt }) => ({ role, model, quality, size, status, code, requestId, batchId, startedAt, finishedAt })), outputs: Object.fromEntries(Object.entries(job.outputs).map(([role, output]) => [role, output ? { downloaded: output.downloaded, normalized: output.normalized, previewedAt: output.previewedAt ?? null, sourceMode: output.sourceMode ?? null, hasPendingUrl: Boolean(output.url), candidateCount: output.candidates?.length ?? null } : null])), needsBuild: job.needsBuild ?? Boolean(!job.theme?.path), validation: job.validation ?? null, homeProof: job.homeProof ?? null, verification: job.verification ?? null, theme: job.theme, ...nextFor(job), progress: progressFor(job) };
 }
 
 function parseOptions(argv) {

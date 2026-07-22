@@ -1,85 +1,52 @@
 ---
 name: workbuddy-skin-lab
-description: 在 Windows WorkBuddy 内根据提示词或一张参考图生成、直接采用、预览、应用、恢复并永久保存固定模板主题。支持任务页固化、首次进入 Home 自动兼容检查、自定义文字和可移动控制面板。只通过 127.0.0.1 CDP 工作；用户提到 WorkBuddy 换肤、主题、背景或首页装饰时应使用本 Skill。
+description: 在 Windows WorkBuddy 内根据提示词或一张参考图生成、应用、保存和切换固定模板主题。支持三张候选背景、三套文案、五个固定装饰模块和一键恢复原生；只通过 127.0.0.1 CDP 工作。
 allowed-tools: Read, Write, Bash
 ---
 
 # WorkBuddy Skin Lab
 
-这是 WorkBuddy 桌面端内部运行，不依赖 Codex 的主入口和流程索引。以 `${CODEBUDDY_SKILL_DIR}` 为根目录调用脚本，不扫描用户目录猜路径。图片生成只使用同一 WorkBuddy 任务中已启用的 `$nonelinear-image`。
+这是在 WorkBuddy 桌面端内部运行的主入口，不依赖 Codex。图片只调用同一 WorkBuddy 任务中已启用的 `$nonelinear-image`；脚本路径必须从 `${CODEBUDDY_SKILL_DIR}` 取得，不扫描用户目录猜测。
 
-## 按需阅读
+## 先读哪一份
 
 - 第一次使用：[`docs/BEGINNER_WORKBUDDY_THEME.md`](docs/BEGINNER_WORKBUDDY_THEME.md)
-- 作业命令和规格：[`references/GENERATION_WORKFLOW.md`](references/GENERATION_WORKFLOW.md)
+- 完整作业协议：[`references/GENERATION_WORKFLOW.md`](references/GENERATION_WORKFLOW.md)
 - API Key：[`references/NONELINEAR_SETUP.md`](references/NONELINEAR_SETUP.md)
-- 模块安全边界：[`references/MODULE_BOUNDARIES.md`](references/MODULE_BOUNDARIES.md)
+- 模块边界：[`references/MODULE_BOUNDARIES.md`](references/MODULE_BOUNDARIES.md)
 - 高级验收：[`docs/PRACTICE.md`](docs/PRACTICE.md)
 
-## 每次对话
+## 固定流程
 
-1. 运行 `doctor`、`validate`、`status` 和 `node scripts/theme-generation-job.mjs resume`。
-2. 有未完成作业时只沿 `jobId` 和 `nextAction` 继续，不重新 `init`，不手改 job JSON。
-3. 除上传、背景、额外计费和最终接受确认外，在同一轮连续运行到下一个 `requiresUser: true`，不要把内部进度交给用户追问。
-4. 生图只在当前前台命令中运行。工具返回“仍在运行”、任务 ID 或进程句柄时，必须在同一轮立即调用对应的 wait/read 工具，每次等待不超过60秒并重复到终态；不能把“将等待自动通知”作为回复结束本轮。
-5. 过程消息不是用户门禁。只要 `requiresUser` 不是 `true`，就继续等待或执行下一步，不能启动后台进程、重复提交或让用户反复发送“继续”“好了吗”。
+1. 先运行 `doctor`、`validate`、`status` 和 `theme-generation-job.mjs resume`。有旧作业就沿唯一 `jobId / nextAction` 继续，禁止重新 `init` 或手改 job JSON。
+2. 确认背景模式：`generate`（提示词生成三张）、`edit`（参考图生成三张）、`direct`（直接使用一张参考图）。本地图片上传前必须取得固定隐私确认。
+3. 开始前一次说明完整调用量并取得确认：generate/edit 为“1次三图背景请求 + 5次模块请求”；direct 为“0次背景请求 + 5次模块请求”。
+4. 所有图片固定 `gpt-image-2`、`quality=low`、`response_format=url`。背景 2048×1152；其余请求 1024×1024。提示词必须禁止文字、UI框架、WorkBuddy标志和水印。
+5. 背景三张必须一次完整返回；少图、下载或标准化失败立即停止，不补图、不重试。默认选择方案1，不等待背景确认；运行 `preview` 展示三张或地址后继续。
+6. 五张模块以方案1为风格参考，用一个前台 `run-derived` 命令并行生成。命令返回句柄时，在同一轮以不超过60秒的分段持续 wait/read，直到终态；不能回复“等待通知”后结束，也不能让用户反复发送“继续”。
+7. AI生成专注、轻松、活力三套结构化文案。第一套同步到旧字段；不得修改固定 slot、order、anchor、kind、box、选择器、action 或原生功能语义。
+8. 素材就绪后取得最终确认，在当前任务页 `accept --spec`、显式 `apply --theme`。保存不要求进入 Home；以后自然进入 Home 时才真实探测并挂载兼容模块。
 
-## 背景选择
+每次调用前提醒：“预计需要1–10分钟，请保持当前窗口打开，不要重复提交；我会在本轮持续等待。只有任务真正中断时，发送‘继续’才会恢复原作业，不会自动再次计费。”
 
-开始前让用户明确选择一种：
+## 运行纪律
 
-- `generate`：没有参考图，生成一张背景。
-- `edit`：根据一张参考图生成新背景；本地图片先解释上传并取得确认。
-- `direct`：直接采用参考图，居中裁切为 2048×1152；不产生背景生图调用。本地图片仍需上传确认，供后续五张素材保持统一风格。
-
-每次生图前先说：“预计需要1–10分钟，请保持当前窗口打开，不要重复提交；正常情况下我会一直等待结果。只有任务真的中断时，发送‘继续’才会恢复原作业，不会自动再次计费。”图片只能通过同一任务已启用的 `$nonelinear-image`，固定 `gpt-image-2`、`quality=low`、`response_format=url`。失败不自动重试。
-
-背景使用一次前台 `run-image` 并等待它返回。背景确认并一次授权五张派生素材后：
-
-1. 把五个固定角色的提示词写到同一作业目录的 `prompts/<role>.txt`。
-2. 只启动一次前台命令 `run-derived --prompt-dir <目录>`；它并行生成五张图片，并在五张全部成功、失败或结果未知后才退出。
-3. 为宿主命令设置至少 660 秒等待上限。命令每15秒向 stderr 输出不含提示词、URL或密钥的前台心跳；等待期间不结束本轮对话、不轮询新进程、不向用户索要状态提问。
-4. 命令返回后立即继续下载、标准化和 `resume`，直到真正需要用户确认。
-
-若宿主意外中断，下一次 `resume` 会根据作业中的 `batchId`、开始时间和调用状态恢复；死亡的前台进程记为 `outcome_unknown`，等待用户决定是否新增授权。
-
-## 展示与确认
-
-背景标准化后运行：
-
-```powershell
-node scripts/theme-generation-job.mjs preview --job <jobId> --role background
-```
-
-把返回的 `markdown` 直接展示给用户，并同时给出 `url` 或本地 `path`。没有完成 preview 时不得确认背景。用户确认背景时，同时说明将继续产生五次派生素材调用。
-
-新生成的 `home-welcome` 默认只包含 eyebrow、title、subtitle，不生成徽标文字。图片内禁止文字、UI 框架、WorkBuddy 标志和水印。
-
-## 保存与应用
-
-六张素材就绪后，无需进入 Home：
-
-1. 取得最终确认。
-2. `accept --job <jobId> --spec <generation-spec.json>` 在任务页构建并永久保存主题。
-3. 显式 `apply --theme <themeId>` 设置活动主题。
-4. 如当前是任务页，只应用任务页背景、配色和 🎨面板；不得要求用户返回 Home。
-
-主题初始状态为 `accepted-pending-home`。用户以后自然进入 Home 时，运行时才用白名单选择器探测真实锚点；尺寸合格后创建五个模块。探测失败时保持背景并显示“Home组件待兼容”，禁止猜选择器。
-
-`verify-home` 仍可用于高级验收，但不是保存主题的前置条件。🎨可拖动并记住位置；下拉框用于预览，用户点击“保存当前主题（下次启动）”后，当前主题 ID 才成为启动偏好。下一次普通“开始使用”通过固定 CDP 读取该 ID，校验主题仍存在后同步到 `settings.json`。显式 `apply --theme` 始终优先。
-
-需要主动验收 Home 时，先运行 `probe-anchors`，再运行 `inspect-modules` / `verify-home`；具体门禁见 `references/MODULE_BOUNDARIES.md` 与 `docs/PRACTICE.md`。
+- 除上传、完整调用量、额外重试和最终接受以外，`requiresUser` 不是 `true` 时必须在同一轮继续。
+- 超时、空输出、传输中断记为 `outcome_unknown`；等待用户新增授权，绝不自动重试。
+- `preview` 是展示，不是门禁。三张背景默认方案1；用户以后在 `🎨 → 主题与背景` 切换不会调用生图。
+- `🎨` 可拖动并记住位置；用户必须点击“保存当前主题（下次启动）”才更新启动偏好。
+- `verify-home` 是高级可选验收，不是固化前置条件。
 
 ## 安全边界
 
-- 不读取或修改网络请求、fetch、IPC、剪贴板或聊天内容；不绕过 WorkBuddy 的计费、权限或安全提示。
+- 不读写网络请求、fetch、IPC、剪贴板或聊天内容；不绕过 WorkBuddy 的计费、权限或安全提示。
 - 不修改 WorkBuddy.exe、app.asar、安装文件或代码签名；CDP 仅绑定 `127.0.0.1`。
 - 不生成自由 CSS、JavaScript、选择器或业务逻辑。
-- 素材必须经过 `assetPath()`、`verifiedAsset()`、`loadTheme()`，不得持久化大 base64。
-- 所有 DOM、监听器、观察器和临时样式必须进入现有 cleanup；`pause` 后完全恢复。
-- 首次开启 CDP 需要用户保存任务并从外部双击“开始使用”，不能让正在运行的 Skill 关闭宿主。
+- 所有素材必须经过 `assetPath()`、`verifiedAsset()`、`loadTheme()`；不得持久化大 base64。
+- 所有 DOM、监听器、观察器、属性和临时样式必须进入现有 cleanup；`pause` 后完全恢复。
+- 首次开启 CDP 时提醒保存任务并从外部运行“开始使用”；正在运行的 Skill 不关闭宿主。
 
-## 常用命令
+## 常用入口
 
 ```powershell
 node src/cli.mjs doctor
