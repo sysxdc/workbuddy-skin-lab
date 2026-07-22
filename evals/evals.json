@@ -1,66 +1,17 @@
 {
   "skill": "workbuddy-skin-lab",
-  "version": 1,
+  "version": 2,
   "cases": [
-    {
-      "id": "prompt-only-background",
-      "prompt": "生成一套暮色纸灯风格 WorkBuddy 主题，不使用参考图。",
-      "assertions": ["使用 generate", "初始只授权一次背景调用", "固定 gpt-image-2 low 2048x1152", "提示等待1至10分钟且不重复提交", "背景标准化后必须先展示再确认", "不得自动生成五张派生素材"]
-    },
-    {
-      "id": "local-reference-consent",
-      "prompt": "用本地 PNG 作为参考图生成主题。",
-      "assertions": ["未指定模式时默认 edit", "显示固定上传说明", "明确确认前不上传", "只允许一张 1B-20MB PNG/JPEG/WebP", "只调用固定上传地址", "取得公开 HTTPS URL 后使用 edit", "展示生成背景或公开地址后等待确认"]
-    },
-    {
-      "id": "direct-reference",
-      "prompt": "直接使用这张本地插画作为背景，不要重新生成背景。",
-      "assertions": ["选择 direct", "确认上传后仅把 URL 用作五张派生素材参考", "背景调用授权为零且拒绝重试授权", "原图不修改", "副本居中裁切为2048x1152 JPEG", "展示标准化本地路径后才能确认"]
-    },
-    {
-      "id": "task-page-accept",
-      "prompt": "我现在在任务页，背景和五张素材都确认了，请保存并应用。",
-      "assertions": ["不要求进入 Home", "校验六张素材和当前预览确认", "accept 后状态为 accepted-pending-home", "显式 apply 并永久保存活动主题", "以后自然进入 Home 时才探测锚点并按兼容性挂载模块"]
-    },
-    {
-      "id": "interrupted-resume",
-      "prompt": "刚才等待图片时中断了，继续。",
-      "assertions": ["正常生图必须保持前台等待同一进程而不是让用户追问", "先 resume 最近作业", "running 且所属进程已死亡时改为 outcome_unknown", "只沿 nextAction 继续", "不重新 init", "不自动增加调用授权"]
-    },
-    {
-      "id": "parallel-derived-assets",
-      "prompt": "背景我确认了，继续生成剩下五张素材；生成过程中不要让我一直问进度。",
-      "assertions": ["一次确认授权五条独立调用", "把五个提示词写入作业目录", "只启动一个前台 run-derived 命令", "五张图片并行生成", "至少等待660秒且同一命令全部结束后才返回", "每张结果带同一个 batchId 并持续写入作业", "失败不自动重试", "完成后自动继续标准化直到下一个用户门禁"]
-    },
-    {
-      "id": "background-rejected",
-      "prompt": "背景不够明亮，请换一张。",
-      "assertions": ["说明新增一次调用", "等待新授权", "不自动重试", "旧的五次派生授权不可沿用"]
-    },
-    {
-      "id": "text-only-change",
-      "prompt": "图片都不变，把欢迎标题改得更简洁。",
-      "assertions": ["只修改允许的结构化文字", "不调用生图 API", "不修改 slot box selector action", "重新运行主题校验和预览自检"]
-    },
-    {
-      "id": "one-icon-retry",
-      "prompt": "只重做代码开发图标。",
-      "assertions": ["只为 scene-code 请求一次授权", "保持 development 语义", "固定 1024x1024 请求和512x512输出", "失败后不自动重试"]
-    },
-    {
-      "id": "foreground-handle-wait",
-      "prompt": "图片还在生成，不要只告诉我等待通知，也不要让我再发消息才能继续。",
-      "assertions": ["保持原生图像命令在前台", "每15秒输出不含敏感信息的心跳", "取得任务或进程句柄后在同一轮分段 wait/read", "终态前不结束回复", "不重复提交", "不自动增加授权"]
-    },
-    {
-      "id": "save-panel-theme",
-      "prompt": "我在🎨里切到了喜欢的主题，保存它，下次打开自动用这个，同时保留其他主题可切换。",
-      "assertions": ["下拉切换只用于预览", "由保存当前主题按钮记录启动偏好", "下次 apply 通过固定 CDP 读取安全主题 ID", "确认主题存在后同步 settings.json", "显式 apply 优先", "不删除其他主题和独立覆盖"]
-    },
-    {
-      "id": "cancel-preview",
-      "prompt": "取消这套主题并恢复原生。",
-      "assertions": ["先 pause", "确认无模块节点和监听器残留", "预览主题移动到可恢复目录", "清除本地临时 URL 记录", "不承诺远端删除"]
-    }
+    {"id":"prompt-three-backgrounds","prompt":"生成暮色纸灯主题，不使用参考图。","assertions":["使用generate","开始前一次说明3次单图背景调用加5次模块调用","等待用户确认完整调用量","一个run-backgrounds前台批次并行3次n=1","背景固定gpt-image-2 low 2048x1152","三张完整返回后默认方案1","部分失败保留成功图且不自动补图"]},
+    {"id":"reference-edit-three-backgrounds","prompt":"根据这张公开HTTPS参考图生成主题。","assertions":["使用edit","只接受公开HTTPS","一个前台批次并行三次编辑调用","每次n=1","三张背景逐张下载标准化和验证","五张模块使用方案1作为风格参考"]},
+    {"id":"direct-local-reference","prompt":"直接使用这张本地插画作为背景。","assertions":["使用direct","上传前显示固定隐私说明并取得确认","背景调用为零","只保留一张标准化背景","原图不修改","仍一次确认五次模块调用"]},
+    {"id":"foreground-parallel-wait","prompt":"开始生成，过程中不要让我反复问进度。","assertions":["前台运行","每15秒安全心跳","取得句柄后同一轮分段wait/read","五张模块并行","终态前不结束回复","不重复提交"]},
+    {"id":"three-copy-sets","prompt":"给主题生成专注、轻松、活力三套文案。","assertions":["三个固定ID和标签","第一套同步旧字段","保留office/development/creative语义","不改变slot/box/selector/action","手动修改按主题和套装隔离"]},
+    {"id":"panel-background-switch","prompt":"在🎨里切到方案3并保存。","assertions":["主题与背景为一级折叠组","显示1至3张缩略图","即时切换并重新提取配色","不调用生图","选择按主题持久化","不删除其他主题"]},
+    {"id":"panel-copy-cycle","prompt":"点一下切换下一套文案。","assertions":["显示当前文案序号和名称","专注轻松活力循环","不调用生图","首页和模块文字一起切换"]},
+    {"id":"task-readability-mask","prompt":"任务页回答看不清，打开阅读层。","assertions":["只探测main-content白名单锚点","不使用动态chatMessageContainer类","遮罩仅任务页显示","pointer-events none","不覆盖输入框菜单对话框列表框","pause完整清理"]},
+    {"id":"task-page-accept","prompt":"我在任务页，保存并应用主题。","assertions":["不要求进入Home","全部候选和模块走资产验证","accept后accepted-pending-home","显式apply并保存","首次自然进入Home才探测模块"]},
+    {"id":"single-icon-retry","prompt":"只重做代码开发图标。","assertions":["只新增scene-code一次授权","固定quality low","请求和最终均1024x1024","保留development语义","失败不自动重试"]},
+    {"id":"restore-native","prompt":"恢复原生界面。","assertions":["执行pause","移除模块dock遮罩属性监听器观察器和临时样式","不删除已保存主题","再次apply可重复"]}
   ]
 }

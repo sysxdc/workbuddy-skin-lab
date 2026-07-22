@@ -36,7 +36,7 @@ class NormalizeImageTests(unittest.TestCase):
                 image.putpixel((x, y), (180, 60, 120, 255))
         image.save(source)
         result = normalizer.normalize(source, output, "icon")
-        self.assertEqual((result["width"], result["height"]), (512, 512))
+        self.assertEqual((result["width"], result["height"]), (1024, 1024))
         with Image.open(output) as normalized:
             self.assertEqual(normalized.mode, "RGBA")
             self.assertEqual(normalized.getpixel((0, 0))[3], 0)
@@ -45,4 +45,3 @@ class NormalizeImageTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

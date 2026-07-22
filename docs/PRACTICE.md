@@ -16,7 +16,7 @@ npm test
 ## 第 1 轮：任务页准备候选素材
 
 1. 若 `status` 无法连接，保存当前任务后运行 `.\scripts\apply.ps1 -Theme aurora-lab`；已有 CDP 会话则不重启。
-2. 背景与候选模块图片可以在任务页生成、预览和标准化；当前背景未经 `preview` 不得确认。
+2. 背景与候选模块图片可以在任务页生成、预览和标准化；三张背景由一个前台 `run-backgrounds` 批次并行执行三次 `n=1`，完整后默认方案1，`preview` 用于展示而不是确认门禁。
 3. 背景和五张派生素材都必须作为前台命令运行；五张派生素材用一个 `run-derived` 并行等待。确认每15秒存在安全心跳；工具返回任务句柄时必须在同一轮持续 wait/read 到终态，不得 detached/background 启动或以“等待自动通知”结束。
 4. NoneLinear 空输出、路径错误或前台进程意外死亡必须停在 `outcome_unknown`，不得自动重试或手改授权记录。
 5. 若计划 B 档转发点击，目标还必须为 `nativeClickable: true`，并完成单独风险确认。
@@ -25,7 +25,7 @@ npm test
 
 1. 查看 `themes/aurora-lab/theme.json` 中的固定槽位：`home-welcome`、三个覆盖上方原生标签的 `scene-icon` 和 `composer-companion`。示例不启用侧栏提示或下排 `home-card`，避免挤压侧栏底部和重复快捷功能。
 2. 确认素材分别位于 `assets/<moduleId>.svg`，没有与背景或其他模块共用文件。
-3. 六张素材完成后，在当前任务页确认并执行 `accept --spec`，随后显式 apply。作业应为 `accepted-pending-home`，不要求用户切换页面。
+3. 三张背景和五张模块素材完成后，在当前任务页确认并执行 `accept --spec`，随后显式 apply。direct 模式为一张背景加五张模块。作业应为 `accepted-pending-home`，不要求用户切换页面。
 
 ```powershell
 node .\src\cli.mjs validate
