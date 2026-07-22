@@ -25,7 +25,12 @@
     {
       "id": "interrupted-resume",
       "prompt": "刚才等待图片时中断了，继续。",
-      "assertions": ["先 resume 最近作业", "只沿 nextAction 继续", "不重新 init", "不自动增加调用授权", "outcome_unknown 时等待用户决定"]
+      "assertions": ["正常生图必须保持前台等待同一进程而不是让用户追问", "先 resume 最近作业", "running 且所属进程已死亡时改为 outcome_unknown", "只沿 nextAction 继续", "不重新 init", "不自动增加调用授权"]
+    },
+    {
+      "id": "parallel-derived-assets",
+      "prompt": "背景我确认了，继续生成剩下五张素材；生成过程中不要让我一直问进度。",
+      "assertions": ["一次确认授权五条独立调用", "把五个提示词写入作业目录", "只启动一个前台 run-derived 命令", "五张图片并行生成", "至少等待660秒且同一命令全部结束后才返回", "每张结果带同一个 batchId 并持续写入作业", "失败不自动重试", "完成后自动继续标准化直到下一个用户门禁"]
     },
     {
       "id": "background-rejected",

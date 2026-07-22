@@ -65,6 +65,23 @@ async function loadJob(roots, jobId) {
   job.backgroundMode ??= job.reference ? "edit" : "generate";
   job.generation ??= {};
   job.generation.timeoutMs ??= IMAGE_TIMEOUT_MS;
+  let reconciled = false;
+  for (const call of job.calls ?? []) {
+    if (call.status !== "running") continue;
+    let alive = false;
+    if (Number.isSafeInteger(call.ownerPid) && call.ownerPid > 0) {
+      try { process.kill(call.ownerPid, 0); alive = true; } catch (error) { alive = error?.code === "EPERM"; }
+    }
+    if (alive) continue;
+    call.status = "outcome_unknown";
+    call.code = "foreground_process_interrupted";
+    call.finishedAt = new Date().toISOString();
+    reconciled = true;
+  }
+  if (reconciled) {
+    job.updatedAt = new Date().toISOString();
+    await atomicJson(join(root, "job.json"), job);
+  }
   return { root, job };
 }
 
@@ -377,67 +394,140 @@ async function uploadReference(options, roots) {
   return { status: "completed", url: job.reference.url, mime: parsed.mime, size: parsed.size };
 }
 
-async function runImage(options, roots) {
-  const { root, job } = await loadJob(roots, options.job);
-  const role = options.role;
-  const spec = roleSpec(role);
-  if (role === "background" && job.backgroundMode === "direct") throw new Error("direct 模式直接使用参考图，不允许发起背景生图调用");
-  const attempts = job.calls.filter((call) => call.role === role).length;
-  if (attempts >= job.callsAuthorized[role]) throw new Error(`${role} 没有新的计费调用授权`);
-  if (role !== "background" && !job.confirmations.background) throw new Error("派生素材必须在用户确认背景并授权 5 次调用后生成");
-  if (!options["prompt-file"] || !options["skill-script"]) throw new Error("run-image 需要 --prompt-file 和 --skill-script");
+async function imageRunner(options) {
   const skillScript = await realpath(resolve(options["skill-script"])).catch(() => { throw new Error("$nonelinear-image 脚本真实路径不可用；本次未发起调用"); });
-  const prompt = (await readFile(resolve(options["prompt-file"]), "utf8")).trim();
-  if (!prompt) throw new Error("图片提示词不能为空");
+  const adapter = await realpath(resolve(options.adapter || join(dirname(fileURLToPath(import.meta.url)), "run-nonelinear-image.mjs"))).catch(() => { throw new Error("NoneLinear 受控调用器不可用；本次未发起调用"); });
+  return { skillScript, adapter, node: options.node || process.execPath };
+}
+
+async function imageInvocation(job, role, prompt, runner) {
+  const spec = roleSpec(role);
   const referenceUrl = role === "background" ? job.reference?.url : (job.outputs.background?.url || job.reference?.url);
   if (job.reference?.kind === "local" && role === "background" && !referenceUrl) throw new Error("本地参考图尚未上传");
   if (referenceUrl) await assertPublicDns(publicHttpsUrl(referenceUrl));
   const imageArgs = ["--model", IMAGE_MODEL, "--prompt", prompt, "--size", spec.size, "--quality", IMAGE_QUALITY, "--response-format", "url"];
   if (referenceUrl) imageArgs.push("--operation", "edit", "--image", publicHttpsUrl(referenceUrl));
-  const adapter = await realpath(resolve(options.adapter || join(dirname(fileURLToPath(import.meta.url)), "run-nonelinear-image.mjs"))).catch(() => { throw new Error("NoneLinear 受控调用器不可用；本次未发起调用"); });
-  const args = [adapter, "--skill-script", skillScript, "--", ...imageArgs];
-  const call = { role, prompt, model: IMAGE_MODEL, quality: IMAGE_QUALITY, size: spec.size, responseFormat: "url", startedAt: new Date().toISOString(), status: "running" };
-  job.calls.push(call);
-  await saveJob(root, job);
-  let result;
-  try {
-    result = await runProcess(options.node || process.execPath, args, { maxOutput: 2 * 1024 * 1024, timeoutMs: IMAGE_PROCESS_TIMEOUT_MS });
-  } catch (error) {
-    call.finishedAt = new Date().toISOString();
+  return { args: [runner.adapter, "--skill-script", runner.skillScript, "--", ...imageArgs], spec };
+}
+
+function finishImageCall(job, call, execution, error = null) {
+  call.finishedAt = new Date().toISOString();
+  if (error) {
     call.status = "outcome_unknown";
     call.code = "skill_transport_error";
-    await saveJob(root, job);
-    return { status: "failed", code: call.code, outcome: "unknown", error: redactSecrets(error.message || error).slice(0, 500) };
+    return { status: "failed", role: call.role, code: call.code, outcome: "unknown", error: redactSecrets(error.message || error).slice(0, 500) };
   }
-  if (result.timedOut) {
-    call.finishedAt = new Date().toISOString();
+  if (!execution || typeof execution !== "object") {
+    call.status = "outcome_unknown";
+    call.code = "skill_transport_error";
+    return { status: "failed", role: call.role, code: call.code, outcome: "unknown", error: "生图进程没有返回可解析结果" };
+  }
+  if (execution.timedOut) {
     call.status = "outcome_unknown";
     call.code = "skill_timeout_unknown";
-    await saveJob(root, job);
-    return { status: "failed", code: call.code, outcome: "unknown", error: "生图超过 11 分钟父进程保护上限；不会自动重试" };
+    return { status: "failed", role: call.role, code: call.code, outcome: "unknown", error: "生图超过 11 分钟父进程保护上限；不会自动重试" };
   }
   let parsed;
-  try {
-    parsed = processResult(result.stdout, "$nonelinear-image");
-  } catch (error) {
-    call.finishedAt = new Date().toISOString();
+  try { parsed = processResult(execution.stdout, "$nonelinear-image"); } catch (parseError) {
     call.status = "outcome_unknown";
     call.code = "skill_transport_error";
-    await saveJob(root, job);
-    return { status: "failed", code: call.code, outcome: "unknown", error: redactSecrets(error.message || error).slice(0, 500) };
+    return { status: "failed", role: call.role, code: call.code, outcome: "unknown", error: redactSecrets(parseError.message || parseError).slice(0, 500) };
   }
-  call.finishedAt = new Date().toISOString();
-  call.status = parsed.status === "completed" ? "completed" : "failed";
   call.requestId = redactedRequestId(parsed.request_id);
-  if (parsed.status !== "completed" || result.code !== 0) {
+  if (parsed.status !== "completed" || execution.code !== 0) {
+    call.status = "failed";
     call.code = parsed.code || "unknown_error";
-    await saveJob(root, job);
-    return { status: "failed", code: call.code, error: redactSecrets(parsed.error || "NoneLinear 生图失败").slice(0, 500) };
+    return { status: "failed", role: call.role, code: call.code, error: redactSecrets(parsed.error || "NoneLinear 生图失败").slice(0, 500) };
   }
-  const url = publicHttpsUrl(parsed.images?.[0]?.url);
-  job.outputs[role] = { url, requestId: call.requestId, downloaded: null, normalized: null, previewedAt: null, sourceMode: role === "background" ? job.backgroundMode : "generated" };
+  let url;
+  try { url = publicHttpsUrl(parsed.images?.[0]?.url); } catch {
+    call.status = "failed";
+    call.code = "no_image_output";
+    return { status: "failed", role: call.role, code: call.code, error: "NoneLinear 未返回可用图片" };
+  }
+  call.status = "completed";
+  job.outputs[call.role] = { url, requestId: call.requestId, downloaded: null, normalized: null, previewedAt: null, sourceMode: call.role === "background" ? job.backgroundMode : "generated" };
+  return { status: "completed", role: call.role, url, requestId: call.requestId };
+}
+
+async function runImage(options, roots, dependencies = {}) {
+  const { root, job } = await loadJob(roots, options.job);
+  const role = options.role;
+  roleSpec(role);
+  if (role === "background" && job.backgroundMode === "direct") throw new Error("direct 模式直接使用参考图，不允许发起背景生图调用");
+  const attempts = job.calls.filter((call) => call.role === role).length;
+  if (attempts >= job.callsAuthorized[role]) throw new Error(`${role} 没有新的计费调用授权`);
+  if (role !== "background" && !job.confirmations.background) throw new Error("派生素材必须在用户确认背景并授权 5 次调用后生成");
+  if (!options["prompt-file"] || !options["skill-script"]) throw new Error("run-image 需要 --prompt-file 和 --skill-script");
+  const prompt = (await readFile(resolve(options["prompt-file"]), "utf8")).trim();
+  if (!prompt) throw new Error("图片提示词不能为空");
+  const runner = await imageRunner(options);
+  const invocation = await imageInvocation(job, role, prompt, runner);
+  const call = { role, prompt, model: IMAGE_MODEL, quality: IMAGE_QUALITY, size: invocation.spec.size, responseFormat: "url", startedAt: new Date().toISOString(), status: "running", ownerPid: process.pid };
+  job.calls.push(call);
   await saveJob(root, job);
-  return { status: "completed", role, url, requestId: call.requestId };
+  let execution;
+  let error = null;
+  try {
+    execution = await (dependencies.executeImageProcess
+      ? dependencies.executeImageProcess({ role, args: invocation.args, timeoutMs: IMAGE_PROCESS_TIMEOUT_MS })
+      : runProcess(runner.node, invocation.args, { maxOutput: 2 * 1024 * 1024, timeoutMs: IMAGE_PROCESS_TIMEOUT_MS }));
+  } catch (caught) { error = caught; }
+  const result = finishImageCall(job, call, execution, error);
+  await saveJob(root, job);
+  return result;
+}
+
+async function runDerived(options, roots, dependencies = {}) {
+  const { root, job } = await loadJob(roots, options.job);
+  if (!job.confirmations.background) throw new Error("并行生成派生素材前必须先确认背景并授权 5 次调用");
+  if (!options["prompt-dir"] || !options["skill-script"]) throw new Error("run-derived 需要 --prompt-dir 和 --skill-script");
+  const promptDir = resolve(options["prompt-dir"]);
+  if (!(await stat(promptDir).catch(() => null))?.isDirectory()) throw new Error("prompt-dir 不是有效目录");
+  const pending = [];
+  for (const role of DERIVED_ROLES) {
+    if (job.outputs?.[role]?.url || job.outputs?.[role]?.normalized) continue;
+    const attempts = job.calls.filter((call) => call.role === role).length;
+    if (attempts >= (job.callsAuthorized?.[role] ?? 0)) throw new Error(`${role} 没有新的计费调用授权`);
+    const prompt = (await readFile(join(promptDir, `${role}.txt`), "utf8")).trim();
+    if (!prompt) throw new Error(`${role} 图片提示词不能为空`);
+    pending.push({ role, prompt });
+  }
+  if (!pending.length) return { status: "completed", completed: 0, failed: 0, outcomeUnknown: 0, roles: [] };
+  const runner = await imageRunner(options);
+  const prepared = [];
+  for (const item of pending) prepared.push({ ...item, invocation: await imageInvocation(job, item.role, item.prompt, runner) });
+  const batchId = `batch-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
+  for (const item of prepared) {
+    item.call = { role: item.role, prompt: item.prompt, model: IMAGE_MODEL, quality: IMAGE_QUALITY, size: item.invocation.spec.size, responseFormat: "url", startedAt: new Date().toISOString(), status: "running", ownerPid: process.pid, batchId };
+    job.calls.push(item.call);
+  }
+  job.status = "derived-generating";
+  await saveJob(root, job);
+  let saveQueue = Promise.resolve();
+  const persist = () => {
+    saveQueue = saveQueue.then(() => saveJob(root, job));
+    return saveQueue;
+  };
+  const results = await Promise.all(prepared.map(async (item) => {
+    let execution;
+    let error = null;
+    try {
+      execution = await (dependencies.executeImageProcess
+        ? dependencies.executeImageProcess({ role: item.role, args: item.invocation.args, timeoutMs: IMAGE_PROCESS_TIMEOUT_MS })
+        : runProcess(runner.node, item.invocation.args, { maxOutput: 2 * 1024 * 1024, timeoutMs: IMAGE_PROCESS_TIMEOUT_MS }));
+    } catch (caught) { error = caught; }
+    const result = finishImageCall(job, item.call, execution, error);
+    await persist();
+    return result;
+  }));
+  await saveQueue;
+  const completed = results.filter((result) => result.status === "completed").length;
+  const outcomeUnknown = results.filter((result) => result.outcome === "unknown").length;
+  const failed = results.length - completed - outcomeUnknown;
+  job.status = completed === results.length ? "derived-generated" : "derived-incomplete";
+  await saveJob(root, job);
+  return { status: completed === results.length ? "completed" : "failed", batchId, completed, failed, outcomeUnknown, roles: results };
 }
 
 async function ingest(options, roots, dependencies = {}) {
@@ -579,6 +669,8 @@ function progressFor(job) {
 function nextFor(job) {
   if (job.status === "discarded") return { nextAction: "discarded", requiresUser: false };
   if (["accepted", "accepted-pending-home", "accepted-home-compatible", "accepted-home-incompatible"].includes(job.status)) return { nextAction: "apply-theme", requiresUser: false };
+  const running = (job.calls ?? []).filter((call) => call.status === "running");
+  if (running.length) return { nextAction: "wait-running", requiresUser: false, batchId: running.find((call) => call.batchId)?.batchId ?? null, roles: running.map((call) => call.role) };
   if (job.reference?.kind === "local" && !job.confirmations.upload) return { nextAction: "confirm-upload", requiresUser: true };
   if (job.reference?.kind === "local" && !job.reference.url) return { nextAction: "upload-reference", requiresUser: false };
   const nextRole = (role) => {
@@ -596,6 +688,12 @@ function nextFor(job) {
   if (background) return background;
   if (!job.outputs.background.previewedAt) return { nextAction: "preview-background", requiresUser: false };
   if (!job.confirmations.background) return { nextAction: "confirm-background", requiresUser: true };
+  const batchCandidates = DERIVED_ROLES.filter((role) => {
+    if (job.outputs?.[role]?.url || job.outputs?.[role]?.normalized) return false;
+    const attempts = job.calls.filter((call) => call.role === role).length;
+    return attempts < (job.callsAuthorized?.[role] ?? 0);
+  });
+  if (batchCandidates.length > 1) return { nextAction: "run-derived", requiresUser: false, roles: batchCandidates };
   for (const role of DERIVED_ROLES) {
     const next = nextRole(role);
     if (next) return next;
@@ -728,7 +826,7 @@ async function discardJob(options, roots) {
 
 function safeStatus(job) {
   const homeCompatibility = job.status === "accepted-home-compatible" ? "compatible" : job.status === "accepted-home-incompatible" ? "incompatible" : job.status === "accepted-pending-home" ? "pending" : null;
-  return { status: "completed", jobId: job.id, jobStatus: job.status, backgroundMode: job.backgroundMode, homeCompatibility, template: job.template, generation: job.generation, confirmations: job.confirmations, confirmationTimes: job.confirmationTimes, callsAuthorized: job.callsAuthorized, calls: job.calls.map(({ role, model, quality, size, status, code, requestId }) => ({ role, model, quality, size, status, code, requestId })), outputs: Object.fromEntries(Object.entries(job.outputs).map(([role, output]) => [role, output ? { downloaded: output.downloaded, normalized: output.normalized, previewedAt: output.previewedAt ?? null, sourceMode: output.sourceMode ?? null, hasPendingUrl: Boolean(output.url) } : null])), needsBuild: job.needsBuild ?? Boolean(!job.theme?.path), validation: job.validation ?? null, homeProof: job.homeProof ?? null, verification: job.verification ?? null, theme: job.theme, ...nextFor(job), progress: progressFor(job) };
+  return { status: "completed", jobId: job.id, jobStatus: job.status, backgroundMode: job.backgroundMode, homeCompatibility, template: job.template, generation: job.generation, confirmations: job.confirmations, confirmationTimes: job.confirmationTimes, callsAuthorized: job.callsAuthorized, calls: job.calls.map(({ role, model, quality, size, status, code, requestId, batchId, startedAt, finishedAt }) => ({ role, model, quality, size, status, code, requestId, batchId, startedAt, finishedAt })), outputs: Object.fromEntries(Object.entries(job.outputs).map(([role, output]) => [role, output ? { downloaded: output.downloaded, normalized: output.normalized, previewedAt: output.previewedAt ?? null, sourceMode: output.sourceMode ?? null, hasPendingUrl: Boolean(output.url) } : null])), needsBuild: job.needsBuild ?? Boolean(!job.theme?.path), validation: job.validation ?? null, homeProof: job.homeProof ?? null, verification: job.verification ?? null, theme: job.theme, ...nextFor(job), progress: progressFor(job) };
 }
 
 function parseOptions(argv) {
@@ -747,13 +845,14 @@ export async function run(argv, overrides = {}) {
   const options = parseOptions(argv);
   const roots = stateRoots({ jobsRoot: options["jobs-root"], storeRoot: options["store-root"], discardedRoot: options["discarded-root"] });
   const deps = { waitForHomeAnchors, verifyHomeTheme, ...overrides };
-  if (command === "help") return { status: "completed", commands: ["init", "preflight", "confirm", "authorize", "upload-reference", "run-image", "ingest", "preview", "verify-home", "reopen-verification", "resume", "status", "accept", "discard"] };
+  if (command === "help") return { status: "completed", commands: ["init", "preflight", "confirm", "authorize", "upload-reference", "run-image", "run-derived", "ingest", "preview", "verify-home", "reopen-verification", "resume", "status", "accept", "discard"] };
   if (command === "init") { await mkdir(roots.jobsRoot, { recursive: true }); return initialize(options, roots); }
   if (command === "preflight") return preflight(options);
   if (command === "confirm") return confirmGate(options, roots);
   if (command === "authorize") return authorizeRetry(options, roots);
   if (command === "upload-reference") return uploadReference(options, roots);
-  if (command === "run-image") return runImage(options, roots);
+  if (command === "run-image") return runImage(options, roots, deps);
+  if (command === "run-derived") return runDerived(options, roots, deps);
   if (command === "ingest") return ingest(options, roots, deps);
   if (command === "preview") return previewOutput(options, roots);
   if (command === "build") throw new Error("build 已并入 verify-home，不能脱离真实 Home 锚点单独执行");

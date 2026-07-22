@@ -17,8 +17,9 @@ npm test
 
 1. 若 `status` 无法连接，保存当前任务后运行 `.\scripts\apply.ps1 -Theme aurora-lab`；已有 CDP 会话则不重启。
 2. 背景与候选模块图片可以在任务页生成、预览和标准化；当前背景未经 `preview` 不得确认。
-3. NoneLinear 空输出或路径错误必须停在 `outcome_unknown`，不得自动重试或手改授权记录。
-4. 若计划 B 档转发点击，目标还必须为 `nativeClickable: true`，并完成单独风险确认。
+3. 背景和五张派生素材都必须作为前台命令运行；五张派生素材用一个 `run-derived` 并行等待。不得 detached/background 启动，也不得让用户反复询问进度。
+4. NoneLinear 空输出、路径错误或前台进程意外死亡必须停在 `outcome_unknown`，不得自动重试或手改授权记录。
+5. 若计划 B 档转发点击，目标还必须为 `nativeClickable: true`，并完成单独风险确认。
 
 ## 第 2 轮：任务页固化，首次自然进入 Home 再检查
 

@@ -26,7 +26,7 @@
 4. `generate` / `edit` 初始只授权一次背景调用；`direct` 不授权背景调用。调用前提醒预计等待1–10分钟；失败不重试。
 5. 下载或复制、标准化后运行 `preview`，把返回的 Markdown 图片及 URL/路径交给用户。未经预览不能确认背景。
 6. 用户接受背景时，同时确认继续五次派生素材调用。AI生成结构化规格、首页主副标题和五个统一风格提示词；主副标题不增加图片调用。
-7. 五张素材逐张调用；任一次失败都停止并等待授权，不能自动重试。
+7. 将五个提示词写入作业内的 `prompts/<role>.txt`，用一个前台 `run-derived` 命令并行调用五张素材。该命令保持窗口运行并等待全部结果；单张失败照常记账，但不自动重试。
 8. 标准化图片，作业进入 `media-ready`；所有素材仍经同一校验链。
 9. 用户在当前任务页最终确认后，`accept --spec` 构建并固化主题，状态为 `accepted-pending-home`；无需进入 Home。
 10. 显式 `apply --theme` 保存活动主题。以后自然进入 Home 时，Runtime 真实探测锚点并只挂载兼容模块。
@@ -46,7 +46,7 @@ node scripts/theme-generation-job.mjs run-image --job <jobId> --role background 
 node scripts/theme-generation-job.mjs ingest --job <jobId> --role background --python <python.exe>
 node scripts/theme-generation-job.mjs preview --job <jobId> --role background
 node scripts/theme-generation-job.mjs confirm --job <jobId> --gate background
-node scripts/theme-generation-job.mjs run-image --job <jobId> --role home-welcome --prompt-file <素材提示词> --skill-script <nonelinear-skill脚本>
+node scripts/theme-generation-job.mjs run-derived --job <jobId> --prompt-dir <作业内prompts目录> --skill-script <nonelinear-skill脚本>
 node scripts/theme-generation-job.mjs verify-home --job <jobId> --spec <generation-spec.json> --wait 60 --port 9223
 node scripts/theme-generation-job.mjs reopen-verification --job <jobId>
 node scripts/theme-generation-job.mjs status --job <jobId>
@@ -56,9 +56,13 @@ node scripts/theme-generation-job.mjs discard --job <jobId>
 ```
 
 `resume` 不需要 job ID：它只扫描 WorkBuddy Skin Lab 自己的 `generation-jobs` 目录，自动选择最近更新且未丢弃的
-作业，并返回 `progress`、`nextAction` 和 `requiresUser`；已接受主题会直接返回 `apply-theme`。每次用户说“继续”“好了吗”或任务
-被中断后都先运行它；不要重新 init。每个前台步骤完成后再次运行 `resume`，当 `requiresUser: false` 时继续执行唯一
-下一步，直到需要上传、计费、背景或最终确认。禁止启动脱离作业记录的后台进程。
+作业，并返回 `progress`、`nextAction` 和 `requiresUser`；已接受主题会直接返回 `apply-theme`。正常流程由 Skill 在同一轮内部持续执行，
+用户不需要反复询问“继续”或“好了吗”。只有宿主任务真的中断后才重新运行 `resume`，且不得重新 init。
+
+`run-image` 与 `run-derived` 都是前台阻塞命令：调用工具时给出至少 660 秒等待时间，并持续等待同一个进程句柄。
+`run-derived` 先把五条调用以同一个 `batchId` 写入 `job.json`，再并行运行；每张完成时持续写回结果，全部结束后才输出最终 JSON。
+禁止 detached/background 启动、重复命令和另起轮询进程。若进程意外死亡，`resume` 会把遗留 `running` 调用改为
+`outcome_unknown / foreground_process_interrupted`，不会自动重试。
 
 接受主题后，最终目录永久保存在 `%LOCALAPPDATA%\WorkBuddySkinLab\themes\<themeId>`。随后显式执行一次
 `node src/cli.mjs apply --theme <themeId> --port 9223` 会把活动 ID 写入 `settings.json`；以后双击“开始使用”自动恢复。

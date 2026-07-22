@@ -134,6 +134,116 @@ test("作业初始只授权背景一次，失败不重试，派生素材需背�
   assert.equal(revision.callsAuthorized["scene-code"], 1);
 });
 
+test("五张派生素材在一个可追溯的前台命令中并行等待完成", async (t) => {
+  const root = await mkdtemp(join(process.cwd(), ".test-generation-derived-batch-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const jobs = join(root, "jobs");
+  const themes = join(root, "themes");
+  const prompt = join(root, "prompt.txt");
+  const promptDir = join(root, "derived-prompts");
+  const fakeSkill = join(root, "fake-skill.mjs");
+  await mkdir(promptDir, { recursive: true });
+  await writeFile(prompt, "foreground parallel workflow", "utf8");
+  await writeFile(fakeSkill, "export async function run() {}", "utf8");
+  const initialized = await run(["init", "--name", "前台并行", "--prompt-file", prompt, "--jobs-root", jobs, "--store-root", themes]);
+  const jobPath = join(jobs, initialized.jobId, "job.json");
+  const job = JSON.parse(await readFile(jobPath, "utf8"));
+  job.outputs.background = { url: null, normalized: "normalized/background.jpg", previewedAt: new Date().toISOString(), sourceMode: "generate" };
+  await writeFile(jobPath, JSON.stringify(job), "utf8");
+  await run(["confirm", "--job", initialized.jobId, "--gate", "background", "--jobs-root", jobs, "--store-root", themes]);
+  const roles = ["home-welcome", "scene-daily", "scene-code", "scene-design", "composer-companion"];
+  for (const role of roles) await writeFile(join(promptDir, `${role}.txt`), `${role} prompt`, "utf8");
+  let active = 0;
+  let maxActive = 0;
+  const result = await run(["run-derived", "--job", initialized.jobId, "--prompt-dir", promptDir, "--skill-script", fakeSkill, "--jobs-root", jobs, "--store-root", themes], {
+    executeImageProcess: async ({ role }) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 30));
+      active -= 1;
+      return { code: 0, timedOut: false, stdout: JSON.stringify({ status: "completed", images: [{ url: `https://cdn.example.com/${role}.png` }], request_id: `request-${role}` }) };
+    },
+  });
+  assert.equal(result.status, "completed");
+  assert.equal(result.completed, 5);
+  assert.equal(maxActive, 5);
+  const saved = JSON.parse(await readFile(jobPath, "utf8"));
+  assert.deepEqual(saved.calls.filter(({ role }) => roles.includes(role)).map(({ role, status }) => [role, status]).sort(), roles.map((role) => [role, "completed"]).sort());
+  assert.equal(roles.every((role) => saved.outputs[role]?.url), true);
+});
+
+test("派生并行批次部分失败时完整记账且不自动重试", async (t) => {
+  const root = await mkdtemp(join(process.cwd(), ".test-generation-derived-failure-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const jobs = join(root, "jobs");
+  const themes = join(root, "themes");
+  const prompt = join(root, "prompt.txt");
+  const promptDir = join(root, "derived-prompts");
+  const fakeSkill = join(root, "fake-skill.mjs");
+  await mkdir(promptDir, { recursive: true });
+  await writeFile(prompt, "partial failure", "utf8");
+  await writeFile(fakeSkill, "export async function run() {}", "utf8");
+  const initialized = await run(["init", "--name", "部分失败", "--prompt-file", prompt, "--jobs-root", jobs, "--store-root", themes]);
+  const jobPath = join(jobs, initialized.jobId, "job.json");
+  const job = JSON.parse(await readFile(jobPath, "utf8"));
+  job.outputs.background = { url: null, normalized: "normalized/background.jpg", previewedAt: new Date().toISOString(), sourceMode: "generate" };
+  await writeFile(jobPath, JSON.stringify(job), "utf8");
+  await run(["confirm", "--job", initialized.jobId, "--gate", "background", "--jobs-root", jobs, "--store-root", themes]);
+  for (const role of ["home-welcome", "scene-daily", "scene-code", "scene-design", "composer-companion"]) await writeFile(join(promptDir, `${role}.txt`), `${role} prompt`, "utf8");
+  const result = await run(["run-derived", "--job", initialized.jobId, "--prompt-dir", promptDir, "--skill-script", fakeSkill, "--jobs-root", jobs, "--store-root", themes], {
+    executeImageProcess: async ({ role }) => role === "scene-code"
+      ? { code: 1, timedOut: false, stdout: JSON.stringify({ status: "failed", code: "provider_error", error: "mock failure" }) }
+      : { code: 0, timedOut: false, stdout: JSON.stringify({ status: "completed", images: [{ url: `https://cdn.example.com/${role}.png` }] }) },
+  });
+  assert.deepEqual([result.status, result.completed, result.failed, result.outcomeUnknown], ["failed", 4, 1, 0]);
+  const saved = JSON.parse(await readFile(jobPath, "utf8"));
+  assert.equal(saved.calls.filter(({ role }) => role === "scene-code").length, 1);
+  assert.equal(saved.calls.find(({ role }) => role === "scene-code").status, "failed");
+  const resumed = await run(["resume", "--job", initialized.jobId, "--jobs-root", jobs, "--store-root", themes]);
+  assert.equal(resumed.nextAction, "ingest-home-welcome");
+  assert.equal(resumed.requiresUser, false);
+  for (const role of ["home-welcome", "scene-daily", "scene-design", "composer-companion"]) saved.outputs[role].normalized = `normalized/${role}.png`;
+  await writeFile(jobPath, JSON.stringify(saved), "utf8");
+  assert.equal((await run(["resume", "--job", initialized.jobId, "--jobs-root", jobs, "--store-root", themes])).nextAction, "authorize-scene-code");
+});
+
+test("死亡的前台生图进程在 resume 时转为 outcome_unknown", async (t) => {
+  const root = await mkdtemp(join(process.cwd(), ".test-generation-stale-call-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const jobs = join(root, "jobs");
+  const themes = join(root, "themes");
+  const prompt = join(root, "prompt.txt");
+  await writeFile(prompt, "stale foreground call", "utf8");
+  const initialized = await run(["init", "--name", "中断恢复", "--prompt-file", prompt, "--jobs-root", jobs, "--store-root", themes]);
+  const jobPath = join(jobs, initialized.jobId, "job.json");
+  const job = JSON.parse(await readFile(jobPath, "utf8"));
+  job.calls.push({ role: "background", status: "running", ownerPid: 2147483647, startedAt: new Date().toISOString() });
+  await writeFile(jobPath, JSON.stringify(job), "utf8");
+  const resumed = await run(["resume", "--job", initialized.jobId, "--jobs-root", jobs, "--store-root", themes]);
+  assert.equal(resumed.calls[0].status, "outcome_unknown");
+  assert.equal(resumed.nextAction, "authorize-background");
+  assert.equal(JSON.parse(await readFile(jobPath, "utf8")).calls[0].code, "foreground_process_interrupted");
+});
+
+test("仍存活的前台批次只返回 wait-running 而不重复提交", async (t) => {
+  const root = await mkdtemp(join(process.cwd(), ".test-generation-live-call-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const jobs = join(root, "jobs");
+  const themes = join(root, "themes");
+  const prompt = join(root, "prompt.txt");
+  await writeFile(prompt, "live foreground call", "utf8");
+  const initialized = await run(["init", "--name", "仍在等待", "--prompt-file", prompt, "--jobs-root", jobs, "--store-root", themes]);
+  const jobPath = join(jobs, initialized.jobId, "job.json");
+  const job = JSON.parse(await readFile(jobPath, "utf8"));
+  job.calls.push({ role: "background", status: "running", ownerPid: process.pid, batchId: "batch-live", startedAt: new Date().toISOString() });
+  await writeFile(jobPath, JSON.stringify(job), "utf8");
+  const resumed = await run(["resume", "--job", initialized.jobId, "--jobs-root", jobs, "--store-root", themes]);
+  assert.equal(resumed.nextAction, "wait-running");
+  assert.equal(resumed.requiresUser, false);
+  assert.equal(resumed.batchId, "batch-live");
+  assert.deepEqual(resumed.roles, ["background"]);
+});
+
 test("NoneLinear 空输出记为 outcome_unknown，不留下 running 孤儿也不自动重试", async (t) => {
   const root = await mkdtemp(join(process.cwd(), ".test-generation-empty-"));
   t.after(() => rm(root, { recursive: true, force: true }));

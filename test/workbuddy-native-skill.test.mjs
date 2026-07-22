@@ -13,6 +13,8 @@ test("最终用户流程只在 WorkBuddy 对话中调用两个原生 Skill", asy
   assert.match(skill, /allowed-tools: Read, Write, Bash/);
   assert.match(skill, /WorkBuddy 桌面端内部运行，不依赖 Codex/);
   assert.match(skill, /同一 WorkBuddy 任务中已启用的 `\$nonelinear-image`/);
+  assert.match(skill, /只启动一次前台命令 `run-derived/);
+  assert.match(skill, /不能启动后台进程、重复提交或让用户反复发送/);
   assert.match(tutorial, /更多 → 专家·技能·连接器 → 技能/);
   assert.match(tutorial, /在 WorkBuddy 中发出主题需求/);
   assert.doesNotMatch(tutorial, /在 Codex 中|启动 Codex|重新运行 `codex`/i);
