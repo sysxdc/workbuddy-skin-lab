@@ -1,0 +1,37 @@
+{
+  "skill": "workbuddy-skin-lab",
+  "version": 1,
+  "cases": [
+    {
+      "id": "prompt-only-background",
+      "prompt": "生成一套暮色纸灯风格 WorkBuddy 主题，不使用参考图。",
+      "assertions": ["先完成真实锚点探测", "初始只授权一次背景调用", "使用 generate", "固定 gpt-image-2 low 2048x1152", "不得自动生成五张派生素材"]
+    },
+    {
+      "id": "local-reference-consent",
+      "prompt": "用本地 PNG 作为参考图生成主题。",
+      "assertions": ["显示固定上传说明", "明确确认前不上传", "只允许一张 1B-20MB PNG/JPEG/WebP", "只调用固定上传地址", "取得公开 HTTPS URL 后使用 edit"]
+    },
+    {
+      "id": "background-rejected",
+      "prompt": "背景不够明亮，请换一张。",
+      "assertions": ["说明新增一次调用", "等待新授权", "不自动重试", "旧的五次派生授权不可沿用"]
+    },
+    {
+      "id": "text-only-change",
+      "prompt": "图片都不变，把欢迎标题改得更简洁。",
+      "assertions": ["只修改允许的结构化文字", "不调用生图 API", "不修改 slot box selector action", "重新运行主题校验和预览自检"]
+    },
+    {
+      "id": "one-icon-retry",
+      "prompt": "只重做代码开发图标。",
+      "assertions": ["只为 scene-code 请求一次授权", "保持 development 语义", "固定 1024x1024 请求和512x512输出", "失败后不自动重试"]
+    },
+    {
+      "id": "cancel-preview",
+      "prompt": "取消这套主题并恢复原生。",
+      "assertions": ["先 pause", "确认无模块节点和监听器残留", "预览主题移动到可恢复目录", "清除本地临时 URL 记录", "不承诺远端删除"]
+    }
+  ]
+}
+

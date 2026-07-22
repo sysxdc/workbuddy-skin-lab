@@ -1,0 +1,16 @@
+node_modules/
+.DS_Store
+*.log
+.tmp-*
+coverage/
+release/
+.agent-workspace/
+.workbuddy/
+__pycache__/
+*.py[cod]
+.test-generation-job-*/
+.env
+.env.*
+!.env.example
+generation-jobs/
+screenshots/

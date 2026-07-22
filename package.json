@@ -1,0 +1,24 @@
+{
+  "name": "workbuddy-skin-lab",
+  "version": "1.2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "workbuddy-skin-lab": "src/cli.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "test:python": "python -m unittest test/test_python_suite.py",
+    "check": "node --check src/cli.mjs && node --check src/runtime-script.mjs && node --check scripts/theme-generation-job.mjs",
+    "check:python": "python -m py_compile scripts/upload-reference.py scripts/normalize-generated-image.py",
+    "package:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-release.ps1",
+    "package:workbuddy": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-workbuddy-skills.ps1",
+    "doctor": "node src/cli.mjs doctor",
+    "list": "node src/cli.mjs list",
+    "apply": "node src/cli.mjs apply",
+    "status": "node src/cli.mjs status"
+  }
+}

@@ -1,0 +1,167 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { buildCleanupScript, buildModuleInspectionScript, buildRuntimeScript, buildStatusScript } from "../src/runtime-script.mjs";
+import { buildSkinCss } from "../src/skin-css.mjs";
+
+const theme = {
+  schemaVersion: 1,
+  id: "test-theme",
+  name: "测试主题",
+  background: "background.svg",
+  backgroundDataUrl: "data:image/svg+xml;base64,PHN2Zy8+",
+  colors: { accent: "#112233", secondary: "#445566", surface: "#101010", text: "#FEFEFE" },
+  ui: { opacity: 0.8, blur: 16, radius: 12, appearance: "auto" },
+  art: { focusX: 0.72, focusY: 0.45, safeArea: "left", taskMode: "ambient" },
+  homeHeader: { title: "测试工作台", subtitle: "专注完成今天" },
+  modules: [
+    { id: "side-note", slot: "sidebar-note", order: 0, anchor: "sidebar", kind: "decorate", asset: "assets/side-note.svg", assetDataUrl: "data:image/svg+xml;base64,PHN2Zy8+", box: { x: 0, y: 0, w: 1, h: 1 }, mount: "prepend", minAnchor: { width: 220, height: 360 }, textLimits: { title: 32, subtitle: 72 }, requiredText: ["title"], text: { title: "今日陪伴", subtitle: "慢一点也很好" }, state: "default", action: null },
+    { id: "help-float", slot: "composer-float", order: 0, anchor: "home-composer", kind: "floating", asset: "assets/help-float.svg", assetDataUrl: "data:image/svg+xml;base64,PHN2Zy8+", box: { x: 0.86, y: 0.01, w: 0.1, h: 0.22 }, mount: "overlay", minAnchor: { width: 520, height: 120 }, textLimits: { label: 24 }, requiredText: [], text: { label: "打开弹窗" }, state: "hover", action: { forwardTo: "dialog" } },
+  ],
+};
+
+test("生成的注入脚本包含控制面板和可清理状态", () => {
+  const script = buildRuntimeScript({ css: buildSkinCss(), themes: [theme], activeId: theme.id });
+  assert.match(script, /workbuddy-skin-lab:v1/);
+  assert.match(script, /requestedId: activeId, activeId/);
+  assert.doesNotMatch(script, /themes\.some\(\(theme\) => theme\.id === saved\.activeId\)/);
+  assert.match(script, /换背景/);
+  assert.doesNotMatch(script, /换宠物|createPet|wb-skin-lab-pet/);
+  assert.match(script, /data-setting="theme"/);
+  assert.match(script, /切换主题/);
+  assert.match(script, /option\.textContent = theme\.name/);
+  assert.match(script, /nativeTextSnapshots/);
+  assert.match(script, /home-header-title/);
+  assert.match(script, /home-header-subtitle/);
+  assert.match(script, /首页主标题/);
+  assert.match(script, /首页副标题/);
+  assert.match(script, /node\.textContent = target/);
+  assert.match(script, /node\.textContent = original/);
+  assert.match(script, /const currentTheme = themeById\(state\.activeId\)/);
+  assert.match(script, /saveModulePatch\(currentTheme\.id, currentModule\.id/);
+  assert.doesNotMatch(script, /开关动效|data-action="motion"|wbMotion/);
+  assert.match(script, /ResizeObserver/);
+  assert.match(script, /--wb-sidebar-width/);
+  assert.match(script, /sidebarResizeObserver\?\.disconnect/);
+  assert.match(script, /MutationObserver/);
+  assert.match(script, /pageHostObserver/);
+  assert.match(script, /pageHostObserver\?\.disconnect/);
+  assert.match(script, /setInterval\(syncPageMode, 500\)/);
+  assert.match(script, /clearInterval\(state\.pageTimer\)/);
+  assert.match(script, /wbPageMode/);
+  assert.match(script, /data-setting="readability"/);
+  assert.match(script, /wbReadability/);
+  assert.match(script, /data-setting="safe-area"/);
+  assert.match(script, /--wb-focus-x/);
+  assert.match(script, /自动匹配图片/);
+  assert.match(script, /extractPalette/);
+  assert.match(script, /refreshStoredPalette/);
+  assert.match(script, /custom\.background \? "auto"/);
+  assert.match(script, /data-vscode-theme-kind/);
+  assert.match(script, /restoreNativeAppearance/);
+  assert.match(script, /__WORKBUDDY_SKIN_LAB__/);
+  assert.match(script, /moduleStorageKey/);
+  assert.match(script, /:module:/);
+  assert.match(script, /createModuleNodes/);
+  assert.match(script, /module\.minAnchor\.width/);
+  assert.match(script, /wb-module-title/);
+  assert.match(script, /text\.textContent = values\[key\]/);
+  assert.match(script, /state\.cleanups\.push/);
+  assert.match(script, /for \(const cleanup of state\.cleanups\)/);
+  assert.match(script, /data-action=\"module-reset\"/);
+  assert.match(script, /forward-click/);
+  assert.match(script, /nativeClickable\(target\)/);
+  assert.doesNotMatch(script, /ipcRenderer|navigator\.clipboard|XMLHttpRequest/);
+  assert.doesNotMatch(script, /undefined\s*\)/);
+  assert.match(script, /subtree:\s*true/);
+  assert.match(script, /data-wb-native-overlay-guard/);
+  assert.match(script, /guardedOverlays/);
+  assert.match(script, /wbObscured/);
+  assert.doesNotThrow(() => new Function(script));
+});
+
+test("原生弹窗保护覆盖几何外层并使用完全不透明表面", () => {
+  const script = buildRuntimeScript({ css: buildSkinCss([theme]), themes: [theme], activeId: theme.id });
+  assert.match(script, /position === "fixed" \|\| style\.position === "absolute"/);
+  assert.match(script, /data-wb-native-overlay-guard/);
+  assert.match(script, /overlayHostStyles/);
+  assert.match(script, /setProperty\("overflow", "visible", "important"\)/);
+  assert.match(script, /state\.overlayHostStyles\.has\(parent\) \|\| style\.overflow !== "visible"/);
+  assert.match(script, /restoreOverlayHost/);
+  assert.match(buildModuleInspectionScript(), /clippedAncestors/);
+  const css = buildSkinCss([theme]);
+  assert.match(css, /--wb-overlay-opaque:/);
+  assert.match(css, /background:\s*var\(--wb-overlay-opaque\)\s*!important/);
+});
+
+test("活动主题必须存在", () => {
+  assert.throws(() => buildRuntimeScript({ css: "", themes: [theme], activeId: "missing" }), /活动主题不存在/);
+});
+
+test("清理和状态脚本只操作命名空间内对象", () => {
+  assert.match(buildCleanupScript(), /cleanup/);
+  assert.match(buildStatusScript(), /themeId/);
+  assert.match(buildStatusScript(), /pageMode/);
+  assert.match(buildStatusScript(), /readability/);
+  assert.match(buildStatusScript(), /requestedThemeId/);
+  assert.match(buildStatusScript(), /mountedModules/);
+  assert.match(buildStatusScript(), /visibleModules/);
+});
+
+test("CSS 使用 WorkBuddy 稳定锚点", () => {
+  const css = buildSkinCss([theme]);
+  assert.match(css, /data-application-name="workbuddy"/);
+  assert.match(css, /data-view-id="sidebar"/);
+  assert.match(css, /--wb-sidebar-width/);
+  assert.match(css, /--wb-effective-blur:\s*min\(var\(--wb-blur\), 4px\)/);
+  assert.match(css, /--wb-transition-width:\s*clamp\(140px, 14vw, 280px\)/);
+  assert.match(css, /mask-image/);
+  assert.doesNotMatch(css, /background-attachment:\s*fixed/);
+  assert.match(css, /data-wb-page-mode="task"/);
+  assert.match(css, /data-wb-safe-area="right"/);
+  assert.match(css, /--wb-focus-x/);
+  assert.match(css, /data-wb-appearance="dark"/);
+  assert.match(css, /--wb-protected-surface:\s*var\(--wb-surface\)/);
+  assert.match(css, /\.wb-cb-chat section:has\(\[data-slate-editor="true"\]\[contenteditable="true"\]\)/);
+  assert.match(css, /data-wb-task-mode="ambient"[\s\S]*background:\s*transparent/);
+  assert.match(css, /\.workbuddy-topbar/);
+  assert.match(css, /\.wb-home-composer/);
+  assert.match(css, /\.wb-home-page \.wb-scene-tabs/);
+  assert.match(css, /\.wb-home-page \.quick-actions__item/);
+  assert.match(css, /\.wb-home-composer__input-slot/);
+  assert.match(css, /data-wb-readability="on"/);
+  assert.match(css, /_chatMessageContainer_/);
+  assert.match(css, /:not\(:has\(section \[data-slate-editor/);
+  assert.match(css, /linear-gradient\(180deg, transparent 58%/);
+  assert.match(css, /var\(--wb-protected-surface\) 14%, transparent\) 76%/);
+  assert.match(css, /main-content--welcome/);
+  assert.match(css, /\[role="dialog"\]/);
+  assert.match(css, /conversation-list-tab-button\.active/);
+  assert.doesNotMatch(css, /wb-skin-native-pet-hidden|wb-skin-lab-pet/);
+  assert.doesNotMatch(css, /data-wb-motion/);
+  assert.match(css, /-webkit-app-region: no-drag/);
+  assert.match(css, /data-wb-module="side-note"/);
+  assert.match(css, /--wb-module-x:0/);
+  assert.match(css, /data-wb-module-slot="home-hero"/);
+  assert.match(css, /data-wb-module-slot="home-card"/);
+  assert.match(css, /data-wb-module-slot="sidebar-note"/);
+  assert.match(css, /data-wb-action="forward-click"/);
+  assert.match(css, /data-wb-native-overlay-guard/);
+  assert.match(css, /2147483000/);
+  assert.match(css, /data-wb-obscured/);
+});
+
+test("模块自检脚本只读取固定锚点、模块样式和边界", () => {
+  const script = buildModuleInspectionScript();
+  assert.match(script, /getComputedStyle/);
+  assert.match(script, /getBoundingClientRect/);
+  assert.match(script, /interactiveOverlaps/);
+  assert.match(script, /textEditors/);
+  assert.match(script, /textOverflow/);
+  assert.match(script, /homeHeader/);
+  assert.match(script, /nativeOverlays/);
+  assert.match(script, /pageMode/);
+  assert.match(script, /themeId/);
+  assert.doesNotMatch(script, /appendChild|addEventListener|fetch\(|ipcRenderer|clipboard/);
+  assert.doesNotThrow(() => new Function(script));
+});
