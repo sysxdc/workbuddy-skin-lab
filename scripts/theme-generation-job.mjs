@@ -16,6 +16,7 @@ export const JOB_VERSION = 1;
 export const TEMPLATE_VERSION = "home-scene-v1";
 export const IMAGE_MODEL = "gpt-image-2";
 export const IMAGE_QUALITY = "low";
+export const BACKGROUND_CANDIDATE_COUNT = 3;
 export const IMAGE_ROLES = Object.freeze(["background", "home-welcome", "scene-daily", "scene-code", "scene-design", "composer-companion"]);
 const DERIVED_ROLES = IMAGE_ROLES.slice(1);
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -384,7 +385,7 @@ async function confirmGate(options, roots) {
   else if (gate === "generation") {
     if (job.confirmations.generation) throw new Error("本作业的完整调用量已经确认");
     job.confirmations.generation = true;
-    for (const role of IMAGE_ROLES) job.callsAuthorized[role] = role === "background" && job.backgroundMode === "direct" ? 0 : 1;
+    for (const role of IMAGE_ROLES) job.callsAuthorized[role] = role === "background" ? (job.backgroundMode === "direct" ? 0 : BACKGROUND_CANDIDATE_COUNT) : 1;
     job.confirmations.background = true;
   }
   else if (gate === "background") {
@@ -414,30 +415,36 @@ async function authorizeRetry(options, roots) {
   const attempts = job.calls.filter((call) => call.role === role).length;
   if (attempts < job.callsAuthorized[role]) throw new Error(`${role} 仍有尚未使用的调用授权`);
   if (!job.confirmations.generation) throw new Error("尚未确认完整调用量，不能授权重试");
-  job.callsAuthorized[role] += 1;
+  const count = options.count == null ? 1 : Number(options.count);
+  if (!Number.isInteger(count) || count < 1 || count > BACKGROUND_CANDIDATE_COUNT) throw new Error("count 必须是 1 到 3 的整数");
+  if (role !== "background" && count !== 1) throw new Error("模块素材每次只能授权 1 次调用");
+  const existingBackgrounds = job.outputs.background?.candidates?.length ?? 0;
+  const completeExistingSet = Boolean(job.outputs.background?.normalized) || existingBackgrounds >= BACKGROUND_CANDIDATE_COUNT;
+  if (role === "background" && completeExistingSet && count !== BACKGROUND_CANDIDATE_COUNT) throw new Error("完整重做背景必须明确授权 3 次调用");
+  if (role === "background" && !completeExistingSet && count > BACKGROUND_CANDIDATE_COUNT - existingBackgrounds) throw new Error(`只缺 ${BACKGROUND_CANDIDATE_COUNT - existingBackgrounds} 张背景，不能超额授权`);
+  job.callsAuthorized[role] += count;
   job.confirmations.final = false;
   if (job.confirmationTimes) job.confirmationTimes.final = null;
   job.verification = null;
   job.homeProof = null;
   job.needsBuild = true;
   if (role === "background") {
-    job.confirmations.background = false;
-    if (job.confirmationTimes) {
-      job.confirmationTimes.background = null;
-      job.confirmationTimes.final = null;
+    if (completeExistingSet) {
+      job.outputs.background = null;
+      for (const derivedRole of DERIVED_ROLES) {
+        job.callsAuthorized[derivedRole] = job.calls.filter((call) => call.role === derivedRole).length;
+        job.outputs[derivedRole] = null;
+      }
+      job.status = "background-revision";
+    } else {
+      job.status = "background-incomplete";
     }
-    job.outputs.background = null;
-    for (const derivedRole of DERIVED_ROLES) {
-      job.callsAuthorized[derivedRole] = job.calls.filter((call) => call.role === derivedRole).length;
-      job.outputs[derivedRole] = null;
-    }
-    job.status = "background-revision";
   } else {
     job.outputs[role] = null;
     job.status = `${role}-revision`;
   }
   await saveJob(root, job);
-  return { status: "completed", role, authorized: job.callsAuthorized[role] };
+  return { status: "completed", role, added: count, authorized: job.callsAuthorized[role] };
 }
 
 async function uploadReference(options, roots) {
@@ -466,7 +473,6 @@ async function imageInvocation(job, role, prompt, runner) {
   if (referenceUrl) await assertPublicDns(publicHttpsUrl(referenceUrl));
   const safePrompt = `${prompt}\nNo text, letters, typography, UI frames, WorkBuddy logos, or watermarks.`;
   const imageArgs = ["--model", IMAGE_MODEL, "--prompt", safePrompt, "--size", spec.size, "--quality", IMAGE_QUALITY, "--response-format", "url"];
-  if (role === "background") imageArgs.push("--n", "3");
   if (referenceUrl) imageArgs.push("--operation", "edit", "--image", publicHttpsUrl(referenceUrl));
   return { args: [runner.adapter, "--skill-script", runner.skillScript, "--", ...imageArgs], spec };
 }
@@ -506,7 +512,7 @@ function finishImageCall(job, call, execution, error = null) {
     call.code = "no_image_output";
     return { status: "failed", role: call.role, code: call.code, error: "NoneLinear 未返回可用图片" };
   }
-  const expected = call.role === "background" ? 3 : 1;
+  const expected = 1;
   if (urls.length !== expected) {
     call.status = "failed";
     call.code = "incomplete_image_output";
@@ -514,8 +520,15 @@ function finishImageCall(job, call, execution, error = null) {
   }
   call.status = "completed";
   if (call.role === "background") {
-    job.outputs.background = { candidates: urls.map((url, index) => ({ id: `background-${index + 1}`, label: `方案${index + 1}`, url, downloaded: null, normalized: null })), url: urls[0], requestId: call.requestId, downloaded: null, normalized: null, previewedAt: null, sourceMode: job.backgroundMode };
-    return { status: "completed", role: call.role, urls, defaultUrl: urls[0], requestId: call.requestId };
+    const candidateIndex = Number.isInteger(call.candidateIndex) ? call.candidateIndex : 0;
+    const output = job.outputs.background || { candidates: [], url: null, requestId: null, downloaded: null, normalized: null, previewedAt: null, sourceMode: job.backgroundMode };
+    const candidate = { id: `background-${candidateIndex + 1}`, label: `方案${candidateIndex + 1}`, url: urls[0], requestId: call.requestId, downloaded: null, normalized: null };
+    output.candidates = [...(output.candidates || []).filter((item) => item?.id !== candidate.id), candidate].sort((left, right) => left.id.localeCompare(right.id));
+    output.url = output.candidates[0]?.url || null;
+    output.requestId = output.candidates[0]?.requestId || null;
+    output.sourceMode = job.backgroundMode;
+    job.outputs.background = output;
+    return { status: "completed", role: call.role, candidateIndex, url: urls[0], requestId: call.requestId };
   }
   const url = urls[0];
   job.outputs[call.role] = { url, requestId: call.requestId, downloaded: null, normalized: null, previewedAt: null, sourceMode: "generated" };
@@ -535,7 +548,9 @@ async function runImage(options, roots, dependencies = {}) {
   if (!prompt) throw new Error("图片提示词不能为空");
   const runner = await imageRunner(options);
   const invocation = await imageInvocation(job, role, prompt, runner);
-  const call = { role, prompt, model: IMAGE_MODEL, quality: IMAGE_QUALITY, size: invocation.spec.size, responseFormat: "url", startedAt: new Date().toISOString(), status: "running", ownerPid: process.pid };
+  const candidateIndex = role === "background" ? [...Array(BACKGROUND_CANDIDATE_COUNT).keys()].find((index) => !(job.outputs.background?.candidates || []).some((item) => item?.id === `background-${index + 1}`)) : undefined;
+  if (role === "background" && candidateIndex == null) throw new Error("三张背景候选已经齐全");
+  const call = { role, prompt, model: IMAGE_MODEL, quality: IMAGE_QUALITY, size: invocation.spec.size, responseFormat: "url", startedAt: new Date().toISOString(), status: "running", ownerPid: process.pid, ...(candidateIndex == null ? {} : { candidateIndex }) };
   job.calls.push(call);
   await saveJob(root, job);
   let execution;
@@ -545,13 +560,72 @@ async function runImage(options, roots, dependencies = {}) {
     : dependencies.executeImageProcess ? () => {} : startForegroundHeartbeat({ label: role === "background" ? "背景图片" : `${role} 素材` });
   try {
     execution = await (dependencies.executeImageProcess
-      ? dependencies.executeImageProcess({ role, args: invocation.args, timeoutMs: IMAGE_PROCESS_TIMEOUT_MS })
+      ? dependencies.executeImageProcess({ role, candidateIndex, args: invocation.args, timeoutMs: IMAGE_PROCESS_TIMEOUT_MS })
       : runProcess(runner.node, invocation.args, { maxOutput: 2 * 1024 * 1024, timeoutMs: IMAGE_PROCESS_TIMEOUT_MS }));
   } catch (caught) { error = caught; }
   finally { stopHeartbeat(); }
   const result = finishImageCall(job, call, execution, error);
   await saveJob(root, job);
   return result;
+}
+
+async function runBackgrounds(options, roots, dependencies = {}) {
+  const { root, job } = await loadJob(roots, options.job);
+  if (job.backgroundMode === "direct") throw new Error("direct 模式不产生背景生图调用");
+  if (!job.confirmations.generation) throw new Error("并行生成背景前必须一次确认完整调用量");
+  if (!options["prompt-file"] || !options["skill-script"]) throw new Error("run-backgrounds 需要 --prompt-file 和 --skill-script");
+  const prompt = (await readFile(resolve(options["prompt-file"]), "utf8")).trim();
+  if (!prompt) throw new Error("背景提示词不能为空");
+  const existing = new Set((job.outputs.background?.candidates || []).map((item) => item?.id));
+  const missing = [...Array(BACKGROUND_CANDIDATE_COUNT).keys()].filter((index) => !existing.has(`background-${index + 1}`));
+  const attempts = job.calls.filter((call) => call.role === "background").length;
+  const available = Math.max(0, (job.callsAuthorized.background || 0) - attempts);
+  const candidateIndexes = missing.slice(0, available);
+  if (!candidateIndexes.length) {
+    if (!missing.length) return { status: "completed", completed: 0, failed: 0, outcomeUnknown: 0, urls: (job.outputs.background?.candidates || []).map((item) => item.url) };
+    throw new Error(`还缺 ${missing.length} 张背景候选，需要用户明确授权新的背景调用`);
+  }
+  const runner = await imageRunner(options);
+  const batchId = `background-batch-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
+  const prepared = await Promise.all(candidateIndexes.map(async (candidateIndex) => {
+    const candidatePrompt = `${prompt}\nCreate composition variation ${candidateIndex + 1} of ${BACKGROUND_CANDIDATE_COUNT}; preserve the requested subject and visual style.`;
+    const invocation = await imageInvocation(job, "background", candidatePrompt, runner);
+    return {
+      candidateIndex, invocation,
+      call: { role: "background", candidateIndex, prompt: candidatePrompt, model: IMAGE_MODEL, quality: IMAGE_QUALITY, size: invocation.spec.size, responseFormat: "url", startedAt: new Date().toISOString(), status: "running", ownerPid: process.pid, batchId },
+    };
+  }));
+  for (const item of prepared) job.calls.push(item.call);
+  job.status = "background-generating";
+  await saveJob(root, job);
+  let saveQueue = Promise.resolve();
+  const persist = () => { saveQueue = saveQueue.then(() => saveJob(root, job)); return saveQueue; };
+  const stopHeartbeat = dependencies.startHeartbeat
+    ? dependencies.startHeartbeat({ label: `${prepared.length} 张背景候选并行生成` })
+    : dependencies.executeImageProcess ? () => {} : startForegroundHeartbeat({ label: `${prepared.length} 张背景候选并行生成` });
+  let results;
+  try {
+    results = await Promise.all(prepared.map(async (item) => {
+      let execution;
+      let error = null;
+      try {
+        execution = await (dependencies.executeImageProcess
+          ? dependencies.executeImageProcess({ role: "background", candidateIndex: item.candidateIndex, args: item.invocation.args, timeoutMs: IMAGE_PROCESS_TIMEOUT_MS })
+          : runProcess(runner.node, item.invocation.args, { maxOutput: 2 * 1024 * 1024, timeoutMs: IMAGE_PROCESS_TIMEOUT_MS }));
+      } catch (caught) { error = caught; }
+      const result = finishImageCall(job, item.call, execution, error);
+      await persist();
+      return result;
+    }));
+  } finally { stopHeartbeat(); }
+  await saveQueue;
+  const completed = results.filter((result) => result.status === "completed").length;
+  const outcomeUnknown = results.filter((result) => result.outcome === "unknown").length;
+  const failed = results.length - completed - outcomeUnknown;
+  const candidates = job.outputs.background?.candidates || [];
+  job.status = candidates.length === BACKGROUND_CANDIDATE_COUNT ? "background-generated" : "background-incomplete";
+  await saveJob(root, job);
+  return { status: candidates.length === BACKGROUND_CANDIDATE_COUNT ? "completed" : "failed", batchId, completed, failed, outcomeUnknown, candidateCount: candidates.length, urls: candidates.map((item) => item.url), defaultUrl: candidates[0]?.url || null, roles: results };
 }
 
 async function runDerived(options, roots, dependencies = {}) {
@@ -656,7 +730,7 @@ async function ingest(options, roots, dependencies = {}) {
     return { status: "completed", role, paths: [normalizedPath], width: parsed.width, height: parsed.height, sizes: [parsed.size] };
   }
   if (role === "background") {
-    if (!Array.isArray(output?.candidates) || output.candidates.length !== 3) throw new Error("背景必须完整返回三张图片，不能自动补图");
+    if (!Array.isArray(output?.candidates) || output.candidates.length !== BACKGROUND_CANDIDATE_COUNT) throw new Error("背景必须完整返回三张图片，不能自动补图");
     const downloads = await Promise.all(output.candidates.map((candidate, index) => (dependencies.downloadImage || downloadImage)(candidate.url, join(root, "downloads", `background-${index + 1}`))));
     const normalizedItems = [];
     for (let index = 0; index < downloads.length; index += 1) {
@@ -800,7 +874,7 @@ function nextFor(job) {
   if (running.length) return { nextAction: "wait-running", requiresUser: false, batchId: running.find((call) => call.batchId)?.batchId ?? null, roles: running.map((call) => call.role) };
   if (job.reference?.kind === "local" && !job.confirmations.upload) return { nextAction: "confirm-upload", requiresUser: true };
   if (job.reference?.kind === "local" && !job.reference.url) return { nextAction: "upload-reference", requiresUser: false };
-  if (!job.confirmations.generation) return { nextAction: "confirm-generation", requiresUser: true, calls: job.backgroundMode === "direct" ? 5 : 6, backgroundOutputs: job.backgroundMode === "direct" ? 1 : 3 };
+  if (!job.confirmations.generation) return { nextAction: "confirm-generation", requiresUser: true, calls: job.backgroundMode === "direct" ? 5 : 8, backgroundCalls: job.backgroundMode === "direct" ? 0 : BACKGROUND_CANDIDATE_COUNT, backgroundOutputs: job.backgroundMode === "direct" ? 1 : BACKGROUND_CANDIDATE_COUNT };
   const nextRole = (role) => {
     const output = job.outputs?.[role];
     if (output?.url && !output.normalized) return { nextAction: `ingest-${role}`, requiresUser: false };
@@ -812,8 +886,14 @@ function nextFor(job) {
       : { nextAction: `authorize-${role}`, requiresUser: true };
   };
   if (job.backgroundMode === "direct" && !job.outputs?.background?.normalized) return { nextAction: "ingest-background", requiresUser: false };
-  const background = nextRole("background");
-  if (background) return background;
+  if (job.backgroundMode !== "direct" && !job.outputs?.background?.normalized) {
+    const candidates = job.outputs?.background?.candidates?.length ?? 0;
+    if (candidates >= BACKGROUND_CANDIDATE_COUNT) return { nextAction: "ingest-background", requiresUser: false };
+    const attempts = job.calls.filter((call) => call.role === "background").length;
+    const available = Math.max(0, (job.callsAuthorized?.background ?? 0) - attempts);
+    if (available > 0) return { nextAction: available > 1 ? "run-backgrounds" : "run-background", requiresUser: false, missing: BACKGROUND_CANDIDATE_COUNT - candidates, authorizedRemaining: available };
+    return { nextAction: "authorize-background", requiresUser: true, missing: BACKGROUND_CANDIDATE_COUNT - candidates, suggestedCount: BACKGROUND_CANDIDATE_COUNT - candidates };
+  }
   const batchCandidates = DERIVED_ROLES.filter((role) => {
     if (job.outputs?.[role]?.url || job.outputs?.[role]?.normalized) return false;
     const attempts = job.calls.filter((call) => call.role === role).length;
@@ -954,7 +1034,7 @@ async function discardJob(options, roots) {
 
 function safeStatus(job) {
   const homeCompatibility = job.status === "accepted-home-compatible" ? "compatible" : job.status === "accepted-home-incompatible" ? "incompatible" : job.status === "accepted-pending-home" ? "pending" : null;
-  return { status: "completed", jobId: job.id, jobStatus: job.status, backgroundMode: job.backgroundMode, homeCompatibility, template: job.template, generation: job.generation, confirmations: job.confirmations, confirmationTimes: job.confirmationTimes, callsAuthorized: job.callsAuthorized, calls: job.calls.map(({ role, model, quality, size, status, code, requestId, batchId, startedAt, finishedAt }) => ({ role, model, quality, size, status, code, requestId, batchId, startedAt, finishedAt })), outputs: Object.fromEntries(Object.entries(job.outputs).map(([role, output]) => [role, output ? { downloaded: output.downloaded, normalized: output.normalized, previewedAt: output.previewedAt ?? null, sourceMode: output.sourceMode ?? null, hasPendingUrl: Boolean(output.url), candidateCount: output.candidates?.length ?? null } : null])), needsBuild: job.needsBuild ?? Boolean(!job.theme?.path), validation: job.validation ?? null, homeProof: job.homeProof ?? null, verification: job.verification ?? null, theme: job.theme, ...nextFor(job), progress: progressFor(job) };
+  return { status: "completed", jobId: job.id, jobStatus: job.status, backgroundMode: job.backgroundMode, homeCompatibility, template: job.template, generation: job.generation, confirmations: job.confirmations, confirmationTimes: job.confirmationTimes, callsAuthorized: job.callsAuthorized, calls: job.calls.map(({ role, candidateIndex, model, quality, size, status, code, requestId, batchId, startedAt, finishedAt }) => ({ role, candidateIndex, model, quality, size, status, code, requestId, batchId, startedAt, finishedAt })), outputs: Object.fromEntries(Object.entries(job.outputs).map(([role, output]) => [role, output ? { downloaded: output.downloaded, normalized: output.normalized, previewedAt: output.previewedAt ?? null, sourceMode: output.sourceMode ?? null, hasPendingUrl: Boolean(output.url), candidateCount: output.candidates?.length ?? null } : null])), needsBuild: job.needsBuild ?? Boolean(!job.theme?.path), validation: job.validation ?? null, homeProof: job.homeProof ?? null, verification: job.verification ?? null, theme: job.theme, ...nextFor(job), progress: progressFor(job) };
 }
 
 function parseOptions(argv) {
@@ -973,13 +1053,14 @@ export async function run(argv, overrides = {}) {
   const options = parseOptions(argv);
   const roots = stateRoots({ jobsRoot: options["jobs-root"], storeRoot: options["store-root"], discardedRoot: options["discarded-root"] });
   const deps = { waitForHomeAnchors, verifyHomeTheme, ...overrides };
-  if (command === "help") return { status: "completed", commands: ["init", "preflight", "confirm", "authorize", "upload-reference", "run-image", "run-derived", "ingest", "preview", "verify-home", "reopen-verification", "resume", "status", "accept", "discard"] };
+  if (command === "help") return { status: "completed", commands: ["init", "preflight", "confirm", "authorize", "upload-reference", "run-image", "run-backgrounds", "run-derived", "ingest", "preview", "verify-home", "reopen-verification", "resume", "status", "accept", "discard"] };
   if (command === "init") { await mkdir(roots.jobsRoot, { recursive: true }); return initialize(options, roots); }
   if (command === "preflight") return preflight(options);
   if (command === "confirm") return confirmGate(options, roots);
   if (command === "authorize") return authorizeRetry(options, roots);
   if (command === "upload-reference") return uploadReference(options, roots);
   if (command === "run-image") return runImage(options, roots, deps);
+  if (command === "run-backgrounds") return runBackgrounds(options, roots, deps);
   if (command === "run-derived") return runDerived(options, roots, deps);
   if (command === "ingest") return ingest(options, roots, deps);
   if (command === "preview") return previewOutput(options, roots);

@@ -97,7 +97,7 @@ test("公开图片 URL 拒绝 localhost、私网、凭据和非 HTTPS", () => {
   }
 });
 
-test("一次确认完整调用量，背景固定返回三张且失败不自动重试", async (t) => {
+test("一次确认后用三个 n=1 调用并行生成三张背景", async (t) => {
   const root = await mkdtemp(join(process.cwd(), ".test-generation-job-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const jobs = join(root, "jobs");
@@ -124,18 +124,20 @@ test("一次确认完整调用量，背景固定返回三张且失败不自动�
   assert.equal(status.nextAction, "confirm-generation");
   await run(["confirm", "--job", initialized.jobId, "--gate", "generation", "--jobs-root", jobs, "--store-root", themes]);
   const authorized = await run(["status", "--job", initialized.jobId, "--jobs-root", jobs, "--store-root", themes]);
-  for (const role of ["background", "home-welcome", "scene-daily", "scene-code", "scene-design", "composer-companion"]) assert.equal(authorized.callsAuthorized[role], 1);
-  const generated = await run(["run-image", "--job", initialized.jobId, "--role", "background", "--prompt-file", prompt, "--skill-script", fakeSkill, "--jobs-root", jobs, "--store-root", themes]);
+  assert.equal(authorized.callsAuthorized.background, 3);
+  for (const role of ["home-welcome", "scene-daily", "scene-code", "scene-design", "composer-companion"]) assert.equal(authorized.callsAuthorized[role], 1);
+  const generated = await run(["run-backgrounds", "--job", initialized.jobId, "--prompt-file", prompt, "--skill-script", fakeSkill, "--jobs-root", jobs, "--store-root", themes]);
   assert.equal(generated.status, "completed");
   assert.equal(generated.urls.length, 3);
   assert.match(generated.defaultUrl, /model=gpt-image-2/);
   assert.match(generated.defaultUrl, /quality=low/);
   assert.match(generated.defaultUrl, /format=url/);
   assert.match(generated.defaultUrl, /timeout=600000/);
-  assert.match(generated.defaultUrl, /n=3/);
+  assert.doesNotMatch(generated.defaultUrl, /[?&]n=/);
   assert.equal(IMAGE_MODEL, "gpt-image-2");
   assert.equal(IMAGE_QUALITY, "low");
-  await assert.rejects(run(["run-image", "--job", initialized.jobId, "--role", "background", "--prompt-file", prompt, "--skill-script", fakeSkill, "--jobs-root", jobs, "--store-root", themes]), /没有新的计费调用授权/);
+  const noDuplicate = await run(["run-backgrounds", "--job", initialized.jobId, "--prompt-file", prompt, "--skill-script", fakeSkill, "--jobs-root", jobs, "--store-root", themes]);
+  assert.equal(noDuplicate.completed, 0);
   const generatedJobPath = join(jobs, initialized.jobId, "job.json");
   const afterConfirm = JSON.parse(await readFile(generatedJobPath, "utf8"));
   assert.equal(afterConfirm.outputs.background.candidates.length, 3);
@@ -157,13 +159,13 @@ test("一次确认完整调用量，背景固定返回三张且失败不自动�
   assert.equal(afterDerivedRetry.homeProof, null);
   assert.equal(afterDerivedRetry.needsBuild, true);
   assert.equal(afterDerivedRetry.outputs["scene-code"], null);
-  await run(["authorize", "--job", initialized.jobId, "--call", "background", "--jobs-root", jobs, "--store-root", themes]);
+  await run(["authorize", "--job", initialized.jobId, "--call", "background", "--count", "3", "--jobs-root", jobs, "--store-root", themes]);
   const revision = JSON.parse(await readFile(join(jobs, initialized.jobId, "job.json"), "utf8"));
   assert.equal(revision.outputs.background, null);
   assert.equal(revision.callsAuthorized["scene-code"], 1);
 });
 
-test("背景少于三张时停止且不会自动补图", async (t) => {
+test("背景批次部分失败时保留成功候选且不自动补图", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "wb-generation-short-background-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const jobs = join(root, "jobs");
@@ -174,14 +176,50 @@ test("背景少于三张时停止且不会自动补图", async (t) => {
   await writeFile(fakeSkill, "export async function run() {}", "utf8");
   const initialized = await run(["init", "--name", "不足三图", "--prompt-file", prompt, "--jobs-root", jobs, "--store-root", themes]);
   await run(["confirm", "--job", initialized.jobId, "--gate", "generation", "--jobs-root", jobs, "--store-root", themes]);
-  const result = await run(["run-image", "--job", initialized.jobId, "--role", "background", "--prompt-file", prompt, "--skill-script", fakeSkill, "--jobs-root", jobs, "--store-root", themes], {
-    executeImageProcess: async () => ({ code: 0, timedOut: false, stdout: JSON.stringify({ status: "completed", images: [{ url: "https://cdn.example.com/1.jpg" }, { url: "https://cdn.example.com/2.jpg" }] }) }),
+  const result = await run(["run-backgrounds", "--job", initialized.jobId, "--prompt-file", prompt, "--skill-script", fakeSkill, "--jobs-root", jobs, "--store-root", themes], {
+    executeImageProcess: async ({ candidateIndex }) => candidateIndex === 2
+      ? ({ code: 1, timedOut: false, stdout: JSON.stringify({ status: "failed", code: "api_error", error: "provider failure" }) })
+      : ({ code: 0, timedOut: false, stdout: JSON.stringify({ status: "completed", images: [{ url: `https://cdn.example.com/${candidateIndex + 1}.jpg` }] }) }),
   });
-  assert.deepEqual([result.status, result.code], ["failed", "incomplete_image_output"]);
+  assert.deepEqual([result.status, result.completed, result.failed, result.candidateCount], ["failed", 2, 1, 2]);
   const status = await run(["status", "--job", initialized.jobId, "--jobs-root", jobs, "--store-root", themes]);
-  assert.equal(status.calls.filter(({ role }) => role === "background").length, 1);
-  assert.equal(status.outputs.background ?? null, null);
+  assert.equal(status.calls.filter(({ role }) => role === "background").length, 3);
+  assert.equal(status.outputs.background.candidateCount, 2);
   assert.equal(status.nextAction, "authorize-background");
+  assert.equal(status.suggestedCount, 1);
+  await assert.rejects(run(["ingest", "--job", initialized.jobId, "--role", "background", "--jobs-root", jobs, "--store-root", themes]), /完整返回三张/);
+  await run(["authorize", "--job", initialized.jobId, "--call", "background", "--count", "1", "--jobs-root", jobs, "--store-root", themes]);
+  const recovered = await run(["status", "--job", initialized.jobId, "--jobs-root", jobs, "--store-root", themes]);
+  assert.equal(recovered.outputs.background.candidateCount, 2);
+  assert.equal(recovered.nextAction, "run-background");
+});
+
+test("rc.1 单图失败作业可沿原 jobId 授权三次替代调用恢复", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "wb-generation-rc1-recovery-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const jobs = join(root, "jobs");
+  const themes = join(root, "themes");
+  const prompt = join(root, "prompt.txt");
+  const fakeSkill = join(root, "fake-skill.mjs");
+  await writeFile(prompt, "recover old single output job", "utf8");
+  await writeFile(fakeSkill, "export async function run() {}", "utf8");
+  const initialized = await run(["init", "--name", "旧作业恢复", "--prompt-file", prompt, "--jobs-root", jobs, "--store-root", themes]);
+  const jobPath = join(jobs, initialized.jobId, "job.json");
+  const job = JSON.parse(await readFile(jobPath, "utf8"));
+  job.confirmations.generation = true;
+  job.confirmations.background = true;
+  job.callsAuthorized.background = 1;
+  for (const role of ["home-welcome", "scene-daily", "scene-code", "scene-design", "composer-companion"]) job.callsAuthorized[role] = 1;
+  job.calls.push({ role: "background", status: "failed", code: "incomplete_image_output", startedAt: new Date().toISOString(), finishedAt: new Date().toISOString() });
+  await writeFile(jobPath, JSON.stringify(job), "utf8");
+  const before = await run(["resume", "--job", initialized.jobId, "--jobs-root", jobs, "--store-root", themes]);
+  assert.deepEqual([before.nextAction, before.suggestedCount], ["authorize-background", 3]);
+  await run(["authorize", "--job", initialized.jobId, "--call", "background", "--count", "3", "--jobs-root", jobs, "--store-root", themes]);
+  const result = await run(["run-backgrounds", "--job", initialized.jobId, "--prompt-file", prompt, "--skill-script", fakeSkill, "--jobs-root", jobs, "--store-root", themes], {
+    executeImageProcess: async ({ candidateIndex }) => ({ code: 0, timedOut: false, stdout: JSON.stringify({ status: "completed", images: [{ url: `https://cdn.example.com/recovered-${candidateIndex + 1}.jpg` }] }) }),
+  });
+  assert.deepEqual([result.status, result.completed, result.candidateCount], ["completed", 3, 3]);
+  assert.equal((await run(["resume", "--job", initialized.jobId, "--jobs-root", jobs, "--store-root", themes])).nextAction, "ingest-background");
 });
 
 test("五张派生素材在一个可追溯的前台命令中并行等待完成", async (t) => {
@@ -272,7 +310,8 @@ test("死亡的前台生图进程在 resume 时转为 outcome_unknown", async (t
   await writeFile(jobPath, JSON.stringify(job), "utf8");
   const resumed = await run(["resume", "--job", initialized.jobId, "--jobs-root", jobs, "--store-root", themes]);
   assert.equal(resumed.calls[0].status, "outcome_unknown");
-  assert.equal(resumed.nextAction, "authorize-background");
+  assert.equal(resumed.nextAction, "run-backgrounds");
+  assert.equal(resumed.authorizedRemaining, 2);
   assert.equal(JSON.parse(await readFile(jobPath, "utf8")).calls[0].code, "foreground_process_interrupted");
 });
 
@@ -306,11 +345,12 @@ test("NoneLinear 空输出记为 outcome_unknown，不留下 running 孤儿也�
   await writeFile(emptySkill, "export async function run() {}", "utf8");
   const initialized = await run(["init", "--name", "空输出测试", "--prompt-file", prompt, "--jobs-root", jobs, "--store-root", themes]);
   await run(["confirm", "--job", initialized.jobId, "--gate", "generation", "--jobs-root", jobs, "--store-root", themes]);
-  const result = await run(["run-image", "--job", initialized.jobId, "--role", "background", "--prompt-file", prompt, "--skill-script", emptySkill, "--jobs-root", jobs, "--store-root", themes]);
-  assert.deepEqual([result.status, result.code, result.outcome], ["failed", "skill_transport_error", "unknown"]);
+  const result = await run(["run-backgrounds", "--job", initialized.jobId, "--prompt-file", prompt, "--skill-script", emptySkill, "--jobs-root", jobs, "--store-root", themes]);
+  assert.deepEqual([result.status, result.completed, result.outcomeUnknown], ["failed", 0, 3]);
   const status = await run(["status", "--job", initialized.jobId, "--jobs-root", jobs, "--store-root", themes]);
-  assert.equal(status.calls[0].status, "outcome_unknown");
-  await assert.rejects(run(["run-image", "--job", initialized.jobId, "--role", "background", "--prompt-file", prompt, "--skill-script", emptySkill, "--jobs-root", jobs, "--store-root", themes]), /没有新的计费调用授权/);
+  assert.equal(status.calls.length, 3);
+  assert.equal(status.calls.every((call) => call.status === "outcome_unknown"), true);
+  await assert.rejects(run(["run-backgrounds", "--job", initialized.jobId, "--prompt-file", prompt, "--skill-script", emptySkill, "--jobs-root", jobs, "--store-root", themes]), /明确授权/);
 });
 
 test("resume 自动找到最近作业并给出唯一下一步或已保存主题", async (t) => {

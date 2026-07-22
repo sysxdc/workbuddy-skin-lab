@@ -2,8 +2,8 @@
   "skill": "workbuddy-skin-lab",
   "version": 2,
   "cases": [
-    {"id":"prompt-three-backgrounds","prompt":"生成暮色纸灯主题，不使用参考图。","assertions":["使用generate","开始前一次说明1次三图背景请求加5次模块请求","等待用户确认完整调用量","背景固定gpt-image-2 low 2048x1152 n=3","三张完整返回后默认方案1","展示三张或地址但不等待背景确认","失败不补图不重试"]},
-    {"id":"reference-edit-three-backgrounds","prompt":"根据这张公开HTTPS参考图生成主题。","assertions":["使用edit","只接受公开HTTPS","一次编辑请求n=3","三张背景逐张下载标准化和验证","五张模块使用方案1作为风格参考"]},
+    {"id":"prompt-three-backgrounds","prompt":"生成暮色纸灯主题，不使用参考图。","assertions":["使用generate","开始前一次说明3次单图背景调用加5次模块调用","等待用户确认完整调用量","一个run-backgrounds前台批次并行3次n=1","背景固定gpt-image-2 low 2048x1152","三张完整返回后默认方案1","部分失败保留成功图且不自动补图"]},
+    {"id":"reference-edit-three-backgrounds","prompt":"根据这张公开HTTPS参考图生成主题。","assertions":["使用edit","只接受公开HTTPS","一个前台批次并行三次编辑调用","每次n=1","三张背景逐张下载标准化和验证","五张模块使用方案1作为风格参考"]},
     {"id":"direct-local-reference","prompt":"直接使用这张本地插画作为背景。","assertions":["使用direct","上传前显示固定隐私说明并取得确认","背景调用为零","只保留一张标准化背景","原图不修改","仍一次确认五次模块调用"]},
     {"id":"foreground-parallel-wait","prompt":"开始生成，过程中不要让我反复问进度。","assertions":["前台运行","每15秒安全心跳","取得句柄后同一轮分段wait/read","五张模块并行","终态前不结束回复","不重复提交"]},
     {"id":"three-copy-sets","prompt":"给主题生成专注、轻松、活力三套文案。","assertions":["三个固定ID和标签","第一套同步旧字段","保留office/development/creative语义","不改变slot/box/selector/action","手动修改按主题和套装隔离"]},

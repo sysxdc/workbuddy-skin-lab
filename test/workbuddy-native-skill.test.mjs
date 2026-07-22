@@ -20,7 +20,7 @@ test("最终用户流程只在 WorkBuddy 对话中调用两个原生 Skill", asy
   assert.match(tutorial, /更多 → 专家·技能·连接器 → 技能/);
   assert.match(tutorial, /在 WorkBuddy 新建任务/);
   assert.doesNotMatch(tutorial, /在 Codex 中|启动 Codex|重新运行 `codex`/i);
-  assert.match(setup, /WorkBuddy-Skin-Lab-1\.3\.0-rc\.1-Skill\.zip/);
+  assert.match(setup, /WorkBuddy-Skin-Lab-1\.3\.0-rc\.2-Skill\.zip/);
   assert.match(setup, /NoneLinear-Image-0\.1\.0-Skill\.zip/);
   assert.match(packager, /Compress-Archive/);
   assert.match(packager, /CODEBUDDY_SKILL_DIR/);
