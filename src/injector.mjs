@@ -51,9 +51,14 @@ async function dataUrl(path) {
 
 export async function themeEntry(loaded) {
   const assets = new Map(loaded.moduleAssets.map((asset) => [asset.id, asset.path]));
+  const sourceBackgrounds = loaded.backgroundAssets || [{ id: "background-1", label: "默认背景", asset: loaded.manifest.background, path: loaded.backgroundPath }];
+  const backgrounds = await Promise.all(sourceBackgrounds.map(async (background) => ({
+    id: background.id, label: background.label, asset: background.asset, dataUrl: await dataUrl(background.path),
+  })));
   return {
     ...loaded.manifest,
-    backgroundDataUrl: await dataUrl(loaded.backgroundPath),
+    backgroundDataUrl: backgrounds[0].dataUrl,
+    backgrounds,
     modules: await Promise.all(loaded.manifest.modules.map(async (module) => ({
       ...module,
       assetDataUrl: await dataUrl(assets.get(module.id)),

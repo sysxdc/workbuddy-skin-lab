@@ -72,11 +72,20 @@ function runtimeMain(payload) {
 
   const moduleOverride = (themeId, moduleId) => moduleStorage.read(themeId, moduleId);
   const moduleAsset = (themeId, module) => moduleOverride(themeId, module.id).asset || module.assetDataUrl;
-  const moduleText = (themeId, module) => ({ ...module.text, ...(moduleOverride(themeId, module.id).text || {}) });
+  const selectedCopySet = (theme, custom = overrides()) => (theme.copySets || []).find((item) => item.id === custom.copySetId) || theme.copySets?.[0] || null;
+  const selectedCopySetId = (theme, custom = overrides()) => selectedCopySet(theme, custom)?.id || "default";
+  const moduleText = (themeId, module) => {
+    const theme = themeById(themeId);
+    const setId = selectedCopySetId(theme);
+    const base = selectedCopySet(theme)?.modules?.[module.id] || module.text;
+    const stored = moduleOverride(themeId, module.id);
+    return { ...base, ...(stored.textByCopySet?.[setId] || (setId === "default" ? stored.text : null) || {}) };
+  };
   const saveModulePatch = (themeId, moduleId, patch) => {
     const current = moduleOverride(themeId, moduleId);
     const next = { ...current, ...patch };
     if (patch.text) next.text = { ...(current.text || {}), ...patch.text };
+    if (patch.textByCopySet) next.textByCopySet = { ...(current.textByCopySet || {}), ...patch.textByCopySet };
     if (!moduleStorage.write(themeId, moduleId, next)) throw new Error("本模块本地存储空间不足；请换一张更小的图片");
   };
   const nativeClickable = (node) => Boolean(node?.matches?.('button,a[href],input,select,textarea,[role="button"],[role="tab"],[role="menuitem"],[tabindex]'))
@@ -203,6 +212,9 @@ function runtimeMain(payload) {
   const syncHomeHeader = () => {
     const theme = themeById(state.activeId);
     const custom = overrides();
+    const setId = selectedCopySetId(theme, custom);
+    const copyHeader = selectedCopySet(theme, custom)?.homeHeader;
+    const customHeader = custom.homeHeaders?.[setId] || (setId === "default" ? custom.homeHeader : null);
     for (const [key, anchorId] of [["title", "home-header-title"], ["subtitle", "home-header-subtitle"]]) {
       const selector = anchorSelectors[anchorId];
       const node = selector ? document.querySelector(selector) : null;
@@ -213,7 +225,7 @@ function runtimeMain(payload) {
         state.cleanups.push(() => { node.textContent = original; });
       }
       const original = state.nativeTextSnapshots.get(node);
-      const target = custom.homeHeader?.[key] ?? theme.homeHeader?.[key] ?? original;
+      const target = customHeader?.[key] ?? copyHeader?.[key] ?? theme.homeHeader?.[key] ?? original;
       if (node.textContent !== target) node.textContent = target;
     }
   };
@@ -384,11 +396,13 @@ function runtimeMain(payload) {
     state.activeId = theme.id;
     const custom = overrides();
     const art = theme.art || { focusX: 0.5, focusY: 0.5, safeArea: "auto", taskMode: "auto" };
+    const background = custom.background || (theme.backgrounds || []).find((item) => item.id === custom.backgroundId)?.dataUrl || theme.backgroundDataUrl;
     const visual = resolveVisualTheme(theme, custom);
     root.dataset.workbuddySkinLab = theme.id;
     root.dataset.wbSafeArea = custom.safeArea || art.safeArea || "auto";
     root.dataset.wbTaskMode = custom.taskMode || art.taskMode || "auto";
     root.dataset.wbReadability = custom.readability === false ? "off" : "on";
+    root.dataset.wbReadabilityAnchor = document.querySelector(anchorSelectors["main-content"]) ? "ready" : "missing";
     applyNativeAppearance(visual.effective);
     const styles = {
       "--wb-accent": visual.colors.accent,
@@ -398,7 +412,7 @@ function runtimeMain(payload) {
       "--wb-panel-opacity": `${Math.round(theme.ui.opacity * 100)}%`,
       "--wb-blur": `${theme.ui.blur}px`,
       "--wb-radius": `${theme.ui.radius}px`,
-      "--wb-background": `url(${JSON.stringify(custom.background || theme.backgroundDataUrl)})`,
+      "--wb-background": `url(${JSON.stringify(background)})`,
       "--wb-focus-x": `${Math.round((art.focusX ?? 0.5) * 10000) / 100}%`,
       "--wb-focus-y": `${Math.round((art.focusY ?? 0.5) * 10000) / 100}%`,
     };
@@ -415,16 +429,22 @@ function runtimeMain(payload) {
     if (themeSelect) themeSelect.value = theme.id;
     ensureActiveModuleNodes();
     syncModules();
+    const setId = selectedCopySetId(theme, custom);
+    const activeHeader = custom.homeHeaders?.[setId] || (setId === "default" ? custom.homeHeader : null) || selectedCopySet(theme, custom)?.homeHeader || theme.homeHeader;
     for (const [key, anchorId] of [["title", "home-header-title"], ["subtitle", "home-header-subtitle"]]) {
       const input = document.querySelector(`#${ids.dock} [data-setting="home-${key}"]`);
-      const node = document.querySelector(anchorSelectors[anchorId]);
-      if (input && node) input.value = node.textContent || "";
+      if (input) input.value = activeHeader?.[key] || document.querySelector(anchorSelectors[anchorId])?.textContent || "";
     }
+    const copyStatus = document.querySelector(`#${ids.dock} [data-copy-status]`);
+    const copySets = theme.copySets || [];
+    const copyIndex = Math.max(0, copySets.findIndex((item) => item.id === setId));
+    if (copyStatus) copyStatus.textContent = copySets.length ? `当前文案：${copyIndex + 1}/${copySets.length} ${copySets[copyIndex].label}` : "当前文案：默认";
+    for (const button of document.querySelectorAll(`#${ids.dock} [data-background-id]`)) button.dataset.active = String(button.dataset.backgroundId === (custom.background ? "custom" : (custom.backgroundId || theme.backgrounds?.[0]?.id)));
     const savedNow = safeStorage.read();
     savedNow.activeId = theme.id;
     safeStorage.write(savedNow);
-    if (custom.background && (!custom.colors || !custom.detectedAppearance)) {
-      refreshStoredPalette(theme.id, custom.background);
+    if (background && (!custom.colors || !custom.detectedAppearance)) {
+      refreshStoredPalette(theme.id, background);
     }
   };
 
@@ -473,7 +493,10 @@ function runtimeMain(payload) {
     state.paletteSource = dataUrl;
     const image = new Image();
     listen(image, "load", () => {
-      if (state.activeId !== themeId || overrides().background !== dataUrl) return;
+      const currentTheme = themeById(themeId);
+      const current = overrides();
+      const selected = current.background || (currentTheme.backgrounds || []).find((item) => item.id === current.backgroundId)?.dataUrl || currentTheme.backgroundDataUrl;
+      if (state.activeId !== themeId || selected !== dataUrl) return;
       try {
         savePatch(extractPalette(image));
         state.paletteSource = null;
@@ -594,16 +617,17 @@ function runtimeMain(payload) {
     listen(input, "change", async () => {
       try {
         const result = await imageFromFile(input.files?.[0], maxDimension, true);
-        savePatch({ background: result.dataUrl, detectedAppearance: result.detectedAppearance, colors: result.colors });
+        savePatch({ background: result.dataUrl, backgroundId: null, detectedAppearance: result.detectedAppearance, colors: result.colors });
         applyTheme(state.activeId);
+        refreshBackgroundOptions();
       } catch (error) { alert(`WorkBuddy Skin Lab：${error.message}`); }
     }, { once: true });
     input.click();
   };
 
   const activeTheme = themeById(state.activeId);
-  const moduleRows = (activeTheme.modules || []).map((module) => `
-      <div data-module-editor data-module-id="${module.id}"><div data-module-row><span>${module.id}</span><button type="button" data-action="module-image" data-module-id="${module.id}">换图</button><button type="button" data-action="module-reset" data-module-id="${module.id}">重置</button></div><div data-module-fields></div></div>`).join("");
+  const moduleEditors = (activeTheme.modules || []).map((module) => `<div data-module-editor data-module-id="${module.id}"><strong>${module.id}</strong><div data-module-fields></div></div>`).join("");
+  const moduleRows = (activeTheme.modules || []).map((module) => `<div data-module-image-row data-module-id="${module.id}"><span>${module.id}</span><button type="button" data-action="module-image" data-module-id="${module.id}">换图</button><button type="button" data-action="module-reset" data-module-id="${module.id}">单项重置</button></div>`).join("");
   const dock = document.createElement("div");
   dock.id = ids.dock;
   dock.innerHTML = `
@@ -611,19 +635,27 @@ function runtimeMain(payload) {
     <section id="wb-skin-lab-panel" aria-label="WorkBuddy 换肤面板">
       <strong>WorkBuddy Skin Lab</strong>
       <span data-home-compatibility>Home 组件：等待首次进入</span>
-      <label>切换主题<select data-setting="theme"></select></label>
-      <button data-action="save-theme" type="button">保存当前主题（下次启动）</button>
-      <span data-theme-save-status>切换只用于预览；点击上方按钮后才设为下次启动主题。</span>
-      <label>首页主标题<input data-setting="home-title" type="text" maxlength="24"></label>
-      <label>首页副标题<input data-setting="home-subtitle" type="text" maxlength="36"></label>
-      <label>界面外观<select data-setting="appearance"><option value="auto">自动匹配图片</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
-      <label>背景安全区<select data-setting="safe-area"><option value="auto">自动（左侧）</option><option value="left">左侧</option><option value="right">右侧</option><option value="center">中央</option><option value="none">不保护</option></select></label>
-      <label>任务页背景<select data-setting="task-mode"><option value="auto">自动（柔和）</option><option value="ambient">柔和保留</option><option value="banner">仅顶部展示</option><option value="off">任务页关闭</option></select></label>
-      <label>回答阅读层<select data-setting="readability"><option value="on">显示（更清晰）</option><option value="off">关闭（背景通透）</option></select></label>
-      <button data-action="background">换背景</button>
-      ${moduleRows}
-      <button data-action="reset">重置本主题</button>
-      <button data-action="native">恢复原生界面</button>
+      <details open><summary>主题与背景</summary><div class="wb-panel-group">
+        <label>切换主题<select data-setting="theme"></select></label>
+        <button data-action="save-theme" type="button">保存当前主题（下次启动）</button>
+        <span data-theme-save-status>切换只用于预览；保存后下次启动恢复。</span>
+        <div data-background-options></div><span data-background-status>当前背景：方案1</span>
+        <button data-action="background">指定自己的图片</button>
+      </div></details>
+      <details><summary>文案设置</summary><div class="wb-panel-group">
+        <span data-copy-status>当前文案：默认</span><button type="button" data-action="next-copy">切换下一套</button>
+        <label>首页主标题<input data-setting="home-title" type="text" maxlength="24"></label>
+        <label>首页副标题<input data-setting="home-subtitle" type="text" maxlength="36"></label>
+        ${moduleEditors}
+      </div></details>
+      <details><summary>显示效果</summary><div class="wb-panel-group">
+        <label>浅色/深色<select data-setting="appearance"><option value="auto">自动匹配图片</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
+        <label>背景安全区<select data-setting="safe-area"><option value="auto">自动（左侧）</option><option value="left">左侧</option><option value="right">右侧</option><option value="center">中央</option><option value="none">不保护</option></select></label>
+        <label>任务页背景<select data-setting="task-mode"><option value="auto">自动（柔和）</option><option value="ambient">柔和保留</option><option value="banner">仅顶部展示</option><option value="off">任务页关闭</option></select></label>
+        <label>回答阅读层<select data-setting="readability"><option value="on">显示（更清晰）</option><option value="off">关闭（背景通透）</option></select></label>
+      </div></details>
+      <details><summary>模块装饰</summary><div class="wb-panel-group">${moduleRows}</div></details>
+      <details><summary>恢复与重置</summary><div class="wb-panel-group"><button data-action="reset">重置本主题</button><button data-action="native">恢复原生界面</button></div></details>
     </section>`;
   document.body.appendChild(dock);
   state.cleanups.push(() => dock.remove());
@@ -637,6 +669,55 @@ function runtimeMain(payload) {
     themeSelect.appendChild(option);
   }
   themeSelect.value = state.activeId;
+  const refreshBackgroundOptions = () => {
+    const theme = themeById(state.activeId);
+    const custom = overrides();
+    const container = dock.querySelector("[data-background-options]");
+    container.replaceChildren();
+    for (const background of theme.backgrounds || []) {
+      const button = document.createElement("button");
+      const image = document.createElement("img");
+      const label = document.createElement("span");
+      button.type = "button";
+      button.dataset.backgroundId = background.id;
+      button.title = background.label;
+      image.src = background.dataUrl;
+      image.alt = "";
+      label.textContent = background.label;
+      button.append(image, label);
+      container.appendChild(button);
+      listen(button, "click", () => {
+        savePatch({ background: null, backgroundId: background.id, colors: null, detectedAppearance: null });
+        applyTheme(state.activeId);
+        refreshStoredPalette(state.activeId, background.dataUrl);
+        refreshBackgroundOptions();
+      });
+    }
+    const activeId = custom.background ? "custom" : (custom.backgroundId || theme.backgrounds?.[0]?.id);
+    for (const button of container.querySelectorAll("button")) button.dataset.active = String(button.dataset.backgroundId === activeId);
+    const active = (theme.backgrounds || []).find((item) => item.id === activeId);
+    dock.querySelector("[data-background-status]").textContent = `当前背景：${custom.background ? "自定义图片" : (active?.label || "默认背景")}`;
+  };
+  const refreshTextInputs = () => {
+    const theme = themeById(state.activeId);
+    const custom = overrides();
+    const setId = selectedCopySetId(theme, custom);
+    const header = custom.homeHeaders?.[setId] || (setId === "default" ? custom.homeHeader : null) || selectedCopySet(theme, custom)?.homeHeader || theme.homeHeader;
+    const title = dock.querySelector('[data-setting="home-title"]');
+    const subtitle = dock.querySelector('[data-setting="home-subtitle"]');
+    if (title) title.value = header?.title || "";
+    if (subtitle) subtitle.value = header?.subtitle || "";
+    for (const editor of dock.querySelectorAll("[data-module-editor]")) {
+      const module = theme.modules.find((item) => item.id === editor.dataset.moduleId);
+      editor.hidden = !module;
+      if (!module) continue;
+      for (const input of editor.querySelectorAll("input[data-text-key]")) input.value = moduleText(theme.id, module)[input.dataset.textKey] || "";
+    }
+    const sets = theme.copySets || [];
+    const index = Math.max(0, sets.findIndex((item) => item.id === setId));
+    dock.querySelector("[data-copy-status]").textContent = sets.length ? `当前文案：${index + 1}/${sets.length} ${sets[index].label}` : "当前文案：默认";
+    dock.querySelector('[data-action="next-copy"]').disabled = sets.length < 2;
+  };
   const themeSaveStatus = dock.querySelector("[data-theme-save-status]");
   const updateThemeSaveStatus = () => {
     const preferredId = safeStorage.read().preferredActiveId;
@@ -645,6 +726,7 @@ function runtimeMain(payload) {
       : "当前为预览状态；点击“保存当前主题”后才设为下次启动主题。";
   };
   updateThemeSaveStatus();
+  refreshBackgroundOptions();
   const storedCompatibility = readCompatibility(state.activeId);
   writeCompatibility(state.activeId, storedCompatibility || { status: "pending", checkedAt: null, missing: [], modules: [] });
   const clampDockPosition = (position) => ({
@@ -706,12 +788,8 @@ function runtimeMain(payload) {
     if (!safeStorage.write(current)) throw new Error("无法保存主题切换状态");
     applyTheme(next.id);
     ensureActiveModuleNodes();
-    for (const editor of dock.querySelectorAll("[data-module-editor]")) {
-      const module = next.modules.find((item) => item.id === editor.dataset.moduleId);
-      editor.hidden = !module;
-      if (!module) continue;
-      for (const input of editor.querySelectorAll("input[data-text-key]")) input.value = moduleText(next.id, module)[input.dataset.textKey] || "";
-    }
+    refreshBackgroundOptions();
+    refreshTextInputs();
     syncModules();
     updateThemeSaveStatus();
   });
@@ -734,7 +812,10 @@ function runtimeMain(payload) {
       applyTheme(state.activeId);
       return;
     }
-    savePatch({ homeHeader });
+    const theme = themeById(state.activeId);
+    const setId = selectedCopySetId(theme);
+    const current = overrides();
+    savePatch({ homeHeaders: { ...(current.homeHeaders || {}), [setId]: homeHeader } });
     applyTheme(state.activeId);
   };
   listen(dock.querySelector('[data-setting="home-title"]'), "change", saveHomeHeader);
@@ -756,6 +837,16 @@ function runtimeMain(payload) {
     applyTheme(state.activeId);
   });
   listen(dock.querySelector('[data-action="background"]'), "click", () => chooseBackground(1920));
+  listen(dock.querySelector('[data-action="next-copy"]'), "click", () => {
+    const theme = themeById(state.activeId);
+    const sets = theme.copySets || [];
+    if (sets.length < 2) return;
+    const currentIndex = Math.max(0, sets.findIndex((item) => item.id === selectedCopySetId(theme)));
+    savePatch({ copySetId: sets[(currentIndex + 1) % sets.length].id });
+    for (const entry of state.moduleNodes) if (entry.themeId === state.activeId) renderModuleText(entry);
+    applyTheme(state.activeId);
+    refreshTextInputs();
+  });
   const fieldNames = { eyebrow: "眉题", title: "标题", subtitle: "说明", badge: "徽标", label: "辅助名称" };
   for (const editor of dock.querySelectorAll("[data-module-editor]")) {
     const module = activeTheme.modules.find((item) => item.id === editor.dataset.moduleId);
@@ -780,7 +871,9 @@ function runtimeMain(payload) {
           input.value = moduleText(currentTheme.id, currentModule)[field] || "";
           return;
         }
-        saveModulePatch(currentTheme.id, currentModule.id, { text: { [field]: value } });
+        const setId = selectedCopySetId(currentTheme);
+        const stored = moduleOverride(currentTheme.id, currentModule.id);
+        saveModulePatch(currentTheme.id, currentModule.id, { textByCopySet: { ...(stored.textByCopySet || {}), [setId]: { ...(stored.textByCopySet?.[setId] || {}), [field]: value } } });
         const entry = state.moduleNodes.find((item) => item.themeId === currentTheme.id && item.module.id === currentModule.id);
         if (entry) renderModuleText(entry);
         syncModules();
@@ -800,8 +893,7 @@ function runtimeMain(payload) {
       if (entry) renderModuleText(entry);
       const editor = dock.querySelector(`[data-module-editor][data-module-id="${button.dataset.moduleId}"]`);
       if (editor && entry) {
-        const inputs = editor.querySelectorAll("input");
-        Object.keys(entry.module.textLimits).forEach((field, index) => { inputs[index].value = entry.module.text[field] || ""; });
+        refreshTextInputs();
       }
       syncModules();
     });
@@ -813,6 +905,8 @@ function runtimeMain(payload) {
     safeStorage.write(current);
     for (const entry of state.moduleNodes) if (entry.themeId === state.activeId) renderModuleText(entry);
     applyTheme(state.activeId);
+    refreshBackgroundOptions();
+    refreshTextInputs();
   });
 
   state.cleanup = () => {
@@ -830,6 +924,7 @@ function runtimeMain(payload) {
     delete root.dataset.wbSafeArea;
     delete root.dataset.wbTaskMode;
     delete root.dataset.wbReadability;
+    delete root.dataset.wbReadabilityAnchor;
     delete root.dataset.wbAppearance;
     for (const node of state.guardedOverlays) node.removeAttribute("data-wb-native-overlay-guard");
     state.guardedOverlays.clear();

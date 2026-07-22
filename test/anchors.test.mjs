@@ -6,10 +6,11 @@ import { probeAnchors } from "../src/injector.mjs";
 
 test("锚点白名单显式且探测脚本只读取 DOM", () => {
   assert.deepEqual(ANCHOR_IDS, [
-    "sidebar", "topbar", "detail-panel", "home-composer", "home-stage", "quick-actions",
+    "sidebar", "topbar", "detail-panel", "main-content", "home-composer", "home-stage", "quick-actions",
     "scene-tabs", "conversation-list", "chat-composer", "dialog", "home-header-title", "home-header-subtitle",
   ]);
-  assert.equal(Object.keys(ANCHOR_SELECTORS).length, 12);
+  assert.equal(Object.keys(ANCHOR_SELECTORS).length, 13);
+  assert.equal(ANCHOR_SELECTORS["main-content"], '[data-view-id="main-content"]');
   assert.equal(ANCHOR_SELECTORS["home-header-title"], ".wb-home-header__title");
   assert.equal(ANCHOR_SELECTORS["home-header-subtitle"], ".wb-home-header__subtitle");
   const script = buildProbeAnchorsScript();
