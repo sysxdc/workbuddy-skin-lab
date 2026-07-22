@@ -16,7 +16,7 @@
 - 界面装饰：主题色、毛玻璃、透明度和圆角；
 - 侧栏保护：背景从侧栏右侧开始呈现，并通过雾化带柔和连接主内容区；
 - 交互保护：首页选项、输入区、菜单和弹窗使用独立磨砂卡片，不直接叠在图片上；
-- 页面控制面板：右上角 `🎨` 可切换已保存主题、即时换背景并调整显示效果；
+- 页面控制面板：可拖动的 `🎨` 可切换已保存主题、即时换背景并调整显示效果；
 - 多主题管理：新主题不会覆盖旧主题，可在控制面板中随时切换；
 - 可逆操作：一键暂停皮肤，完整恢复原生界面；
 - Windows 发布包：环境检查、开始使用、恢复原生三个双击入口。
@@ -32,7 +32,7 @@
 - [查看 v1.2.0 发布说明与 SHA-256](https://github.com/sysxdc/workbuddy-skin-lab/releases/tag/v1.2.0)
 
 最终用户不需要 Codex：在 WorkBuddy 的“技能 → 添加技能 → 上传技能”中导入
-`WorkBuddy-Skin-Lab-1.2.0-Skill.zip` 与 `NoneLinear-Image-0.1.0-Skill.zip`，之后所有需求、
+当前正式版或草稿测试版的 `WorkBuddy-Skin-Lab-*-Skill.zip` 与 `NoneLinear-Image-0.1.0-Skill.zip`，之后所有需求、
 计费确认、预览修改和恢复都在 WorkBuddy 对话中完成。首次启用本机 CDP 仍需从外部双击一次
 `开始使用.bat`，因为正在运行的 WorkBuddy Skill 无法在关闭宿主后继续同一轮对话。
 
@@ -296,7 +296,7 @@ node .\src\cli.mjs probe-anchors --port 9223
 | slot | 固定用途 | 可自定义文字 | 可添加数量 |
 |---|---|---|---|
 | `sidebar-note` | 左上角陪伴/提示模块 | `title`、`subtitle` | 1 |
-| `home-hero` | 首页欢迎横幅 | `eyebrow`、`title`、`subtitle`、`badge` | 1 |
+| `home-hero` | 首页欢迎横幅 | `eyebrow`、`title`、`subtitle`，可选 `badge` | 1 |
 | `home-card` | 覆盖并装饰现有首页快捷按钮 | `title`、`subtitle`（紧凑模式只显示标题） | 3，按原生按钮 order 排列 |
 | `scene-icon` | 覆盖并装饰上方原生场景标签 | `title` | 4，按原生标签 order 排列 |
 | `composer-float` | 输入区旁悬浮装饰 | `label` 仅用于可访问名称 | 1 |
@@ -335,8 +335,7 @@ DOM 层级、字体规则、间距、圆角、响应式位置和安全 box 由�
       "text": {
         "eyebrow": "CAT LOUNGE · WORKBUDDY",
         "title": "和猫咪一起，轻松完成今天",
-        "subtitle": "选择一个方向，原生工作流会继续为你服务。",
-        "badge": "专注中"
+        "subtitle": "选择一个方向，原生工作流会继续为你服务。"
       }
     },
     {
@@ -418,15 +417,16 @@ Python/Pillow 和安装依赖 Skill 的步骤见 [`references/NONELINEAR_SETUP.m
 标准化器去背；所有可见文字仍由结构化 `textContent` 渲染。五个模块继续服从 20 MB 软预算和
 100 MB 硬上限，并逐个经过 `assetPath()`、`verifiedAsset()` 与 `loadTheme()`。
 
-半自动流程有两次用户确认：初始请求只授权一次背景调用；背景满意后，用户再一次确认五次派生素材调用。
+半自动流程支持提示词生成、参考图生成和直接使用参考图。前两种初始授权一次背景调用，直接模式不产生背景调用；
+背景经 `preview` 展示并确认后，用户再一次确认五次派生素材调用。每次生图会提前提示预计等待1–10分钟。
 失败不会自动重试。改文字不产生生图请求，重做背景或单个图标都必须重新明确授权对应次数。本地参考图
 上传前还会单独提示：“该图片将上传到 NoneLinear 服务器并获得公开 HTTPS URL。”首版只支持一张
 1 B–20 MB 的 PNG、JPEG 或 WebP；工具不会承诺服务器端自动删除。
 
-背景和五张候选素材可以全程在 WorkBuddy 任务页准备，不需要反复返回 Home。全部素材成为 `media-ready`
-后，用户只在最终阶段进入一次 Home，并将输入区左下角 `+` 菜单打开约3秒后关闭；`verify-home` 现场探测真实锚点后才
-构建 modules，并核对请求/实际主题 ID、首页原生主副标题、5个可见模块、文字、A档点击穿透、原生弹窗保护以及
-`pause → 无残留 → 再次 apply`。任务页截图或空模块不能被接受。原生菜单打开时拥有最高交互层级，
+背景和五张候选素材可以全程在 WorkBuddy 任务页准备。全部素材成为 `media-ready` 后即可在当前任务页
+固化并应用，状态为 `accepted-pending-home`，不要求切换 Home。用户以后自然进入 Home 时，Runtime 才现场探测
+白名单锚点与尺寸，合格后挂载五个 modules；不合格时保留背景并在 🎨面板提示“Home组件待兼容”。
+`verify-home` 仍可用于高级验收，但不再阻止保存主题。原生菜单打开时拥有最高交互层级，
 相交装饰临时隐藏，关闭后自动恢复。
 
 多轮对话或 WorkBuddy 任务中断后，Skill 首先执行 `theme-generation-job.mjs resume`。它会在专用作业目录中

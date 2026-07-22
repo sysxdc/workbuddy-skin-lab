@@ -30,7 +30,7 @@ function runtimeMain(payload) {
     requestedId: activeId, activeId,
     listeners: [], cleanups: [], moduleNodes: [], positionedHosts: new Set(), sidebarResizeObserver: null, sidebarTimer: null,
     pageObserver: null, pageNode: null, pageHostObserver: null, pageHost: null, pageFrame: null, pageTimer: null, paletteSource: null,
-    guardedOverlays: new Set(), overlayHostStyles: new Map(), nativeTextSnapshots: new Map(),
+    guardedOverlays: new Set(), overlayHostStyles: new Map(), nativeTextSnapshots: new Map(), homeCompatibility: "pending",
     originalAppearance: { html: rememberAppearance(root), body: rememberAppearance(document.body) },
   };
   const moduleStorageKey = (themeId, moduleId) => `${storageKey}:module:${themeId}:${moduleId}`;
@@ -44,6 +44,16 @@ function runtimeMain(payload) {
     remove(themeId, moduleId) {
       try { localStorage.removeItem(moduleStorageKey(themeId, moduleId)); return true; } catch { return false; }
     },
+  };
+  const compatibilityKey = (themeId) => `${storageKey}:home-compat:${themeId}`;
+  const readCompatibility = (themeId) => {
+    try { return JSON.parse(localStorage.getItem(compatibilityKey(themeId)) || "null"); } catch { return null; }
+  };
+  const writeCompatibility = (themeId, value) => {
+    try { localStorage.setItem(compatibilityKey(themeId), JSON.stringify(value)); } catch { /* 兼容状态不应阻断主题。 */ }
+    state.homeCompatibility = value.status;
+    const status = document.querySelector(`#${ids.dock} [data-home-compatibility]`);
+    if (status) status.textContent = value.status === "compatible" ? "Home 组件：已兼容" : value.status === "incompatible" ? "Home 组件：待兼容" : "Home 组件：等待首次进入";
   };
 
   const listen = (target, type, handler, options) => {
@@ -279,6 +289,7 @@ function runtimeMain(payload) {
       state.pageHostObserver.observe(pageHost, { childList: true, subtree: true });
       state.pageHost = pageHost;
     }
+    ensureActiveModuleNodes();
     syncModules();
   };
 
@@ -402,7 +413,8 @@ function runtimeMain(payload) {
     if (readabilitySelect) readabilitySelect.value = root.dataset.wbReadability;
     const themeSelect = document.querySelector(`#${ids.dock} [data-setting="theme"]`);
     if (themeSelect) themeSelect.value = theme.id;
-    syncHomeHeader();
+    ensureActiveModuleNodes();
+    syncModules();
     for (const [key, anchorId] of [["title", "home-header-title"], ["subtitle", "home-header-subtitle"]]) {
       const input = document.querySelector(`#${ids.dock} [data-setting="home-${key}"]`);
       const node = document.querySelector(anchorSelectors[anchorId]);
@@ -506,32 +518,57 @@ function runtimeMain(payload) {
     reader.readAsDataURL(file);
   });
 
-  const createModuleNodes = () => {
-    for (const theme of themes) {
+  const ensureActiveModuleNodes = () => {
+    const theme = themeById(state.activeId);
+    const previous = readCompatibility(theme.id);
+    if (root.dataset.wbPageMode !== "home") {
+      state.homeCompatibility = previous?.status || "pending";
+      return false;
+    }
+    const requiredAnchors = new Set(["home-header-title", "home-header-subtitle", ...(theme.modules || []).map((module) => module.anchor)]);
+    const missing = [...requiredAnchors].filter((anchorId) => {
+      const selector = anchorSelectors[anchorId];
+      const node = selector ? document.querySelector(selector) : null;
+      const rect = rectOf(node);
+      return !node || !rect || rect.width <= 0 || rect.height <= 0;
+    });
+    const incompatible = [];
+    if (missing.length === 0) {
       for (const module of theme.modules || []) {
-        const actionable = module.kind === "floating" && Boolean(module.action);
-        const node = document.createElement(actionable ? "button" : "div");
-        state.cleanups.push(() => node.remove());
-        if (actionable) node.type = "button";
-        node.dataset.wbModule = module.id;
-        node.dataset.wbModuleKind = module.kind;
-        node.dataset.wbModuleSlot = module.slot;
-        node.dataset.wbModuleOrder = String(module.order);
-        node.dataset.wbVisible = "false";
-        if (actionable) {
-          node.dataset.wbAction = "forward-click";
-        }
-        const entry = { node, module, themeId: theme.id, actionable };
-        state.moduleNodes.push(entry);
-        renderModuleText(entry);
-        if (actionable) {
-          listen(node, "click", () => {
-            const target = document.querySelector(anchorSelectors[module.action.forwardTo]);
-            if (nativeClickable(target) && typeof target.click === "function") target.click();
-          });
-        }
+        const anchor = document.querySelector(anchorSelectors[module.anchor]);
+        const host = (module.hostPath ?? []).reduce((node, index) => node?.children?.[index] ?? null, anchor);
+        const rect = rectOf(anchor);
+        if (!host || !rect || rect.width < module.minAnchor.width || rect.height < module.minAnchor.height) incompatible.push(module.id);
       }
     }
+    if (missing.length || incompatible.length) {
+      writeCompatibility(theme.id, { status: "incompatible", checkedAt: Date.now(), missing, modules: incompatible });
+      return false;
+    }
+    for (const module of theme.modules || []) {
+      if (state.moduleNodes.some((entry) => entry.themeId === theme.id && entry.module.id === module.id)) continue;
+      const actionable = module.kind === "floating" && Boolean(module.action);
+      const node = document.createElement(actionable ? "button" : "div");
+      state.cleanups.push(() => node.remove());
+      if (actionable) node.type = "button";
+      node.dataset.wbModule = module.id;
+      node.dataset.wbModuleKind = module.kind;
+      node.dataset.wbModuleSlot = module.slot;
+      node.dataset.wbModuleOrder = String(module.order);
+      node.dataset.wbVisible = "false";
+      if (actionable) node.dataset.wbAction = "forward-click";
+      const entry = { node, module, themeId: theme.id, actionable };
+      state.moduleNodes.push(entry);
+      renderModuleText(entry);
+      if (actionable) {
+        listen(node, "click", () => {
+          const target = document.querySelector(anchorSelectors[module.action.forwardTo]);
+          if (nativeClickable(target) && typeof target.click === "function") target.click();
+        });
+      }
+    }
+    writeCompatibility(theme.id, { status: "compatible", checkedAt: Date.now(), missing: [], modules: [] });
+    return true;
   };
 
   const chooseModuleAsset = (module, maxDimension) => {
@@ -564,7 +601,6 @@ function runtimeMain(payload) {
     input.click();
   };
 
-  createModuleNodes();
   const activeTheme = themeById(state.activeId);
   const moduleRows = (activeTheme.modules || []).map((module) => `
       <div data-module-editor data-module-id="${module.id}"><div data-module-row><span>${module.id}</span><button type="button" data-action="module-image" data-module-id="${module.id}">换图</button><button type="button" data-action="module-reset" data-module-id="${module.id}">重置</button></div><div data-module-fields></div></div>`).join("");
@@ -574,6 +610,7 @@ function runtimeMain(payload) {
     <button id="wb-skin-lab-toggle" type="button" title="打开换肤面板">🎨</button>
     <section id="wb-skin-lab-panel" aria-label="WorkBuddy 换肤面板">
       <strong>WorkBuddy Skin Lab</strong>
+      <span data-home-compatibility>Home 组件：等待首次进入</span>
       <label>切换主题<select data-setting="theme"></select></label>
       <label>首页主标题<input data-setting="home-title" type="text" maxlength="24"></label>
       <label>首页副标题<input data-setting="home-subtitle" type="text" maxlength="36"></label>
@@ -589,6 +626,7 @@ function runtimeMain(payload) {
   document.body.appendChild(dock);
   state.cleanups.push(() => dock.remove());
   const panel = dock.querySelector("#wb-skin-lab-panel");
+  const toggle = dock.querySelector("#wb-skin-lab-toggle");
   const themeSelect = dock.querySelector('[data-setting="theme"]');
   for (const theme of themes) {
     const option = document.createElement("option");
@@ -597,7 +635,58 @@ function runtimeMain(payload) {
     themeSelect.appendChild(option);
   }
   themeSelect.value = state.activeId;
-  listen(dock.querySelector("#wb-skin-lab-toggle"), "click", () => panel.classList.toggle("open"));
+  const storedCompatibility = readCompatibility(state.activeId);
+  writeCompatibility(state.activeId, storedCompatibility || { status: "pending", checkedAt: null, missing: [], modules: [] });
+  const clampDockPosition = (position) => ({
+    x: Math.max(8, Math.min(window.innerWidth - 46, Number(position?.x) || window.innerWidth - 54)),
+    y: Math.max(8, Math.min(window.innerHeight - 46, Number(position?.y) || 54)),
+  });
+  const placeDock = (position, persist = false) => {
+    const next = clampDockPosition(position);
+    dock.style.left = `${Math.round(next.x)}px`;
+    dock.style.top = `${Math.round(next.y)}px`;
+    dock.style.removeProperty("right");
+    dock.dataset.panelSide = next.x > window.innerWidth / 2 ? "left" : "right";
+    dock.dataset.panelVertical = next.y > window.innerHeight / 2 ? "up" : "down";
+    if (persist) {
+      const current = safeStorage.read();
+      current.dockPosition = next;
+      safeStorage.write(current);
+    }
+    return next;
+  };
+  let dockPosition = placeDock(saved.dockPosition);
+  let drag = null;
+  let suppressToggle = false;
+  listen(toggle, "pointerdown", (event) => {
+    if (event.button != null && event.button !== 0) return;
+    drag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, origin: dockPosition, moved: false };
+    toggle.setPointerCapture?.(event.pointerId);
+  });
+  listen(toggle, "pointermove", (event) => {
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    if (!drag.moved && Math.hypot(dx, dy) < 5) return;
+    drag.moved = true;
+    panel.classList.remove("open");
+    dockPosition = placeDock({ x: drag.origin.x + dx, y: drag.origin.y + dy });
+    event.preventDefault();
+  });
+  const finishDockDrag = (event) => {
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    suppressToggle = drag.moved;
+    if (drag.moved) dockPosition = placeDock(dockPosition, true);
+    toggle.releasePointerCapture?.(event.pointerId);
+    drag = null;
+  };
+  listen(toggle, "pointerup", finishDockDrag);
+  listen(toggle, "pointercancel", finishDockDrag);
+  listen(toggle, "click", (event) => {
+    if (suppressToggle) { suppressToggle = false; event.preventDefault(); return; }
+    panel.classList.toggle("open");
+  });
+  listen(window, "resize", () => { dockPosition = placeDock(dockPosition, true); });
   listen(themeSelect, "change", () => {
     const next = themes.find((theme) => theme.id === themeSelect.value);
     if (!next) return;
@@ -606,6 +695,7 @@ function runtimeMain(payload) {
     current.activeIdUpdatedAt = Date.now();
     if (!safeStorage.write(current)) throw new Error("无法保存主题切换状态");
     applyTheme(next.id);
+    ensureActiveModuleNodes();
     for (const editor of dock.querySelectorAll("[data-module-editor]")) {
       const module = next.modules.find((item) => item.id === editor.dataset.moduleId);
       editor.hidden = !module;
@@ -750,7 +840,7 @@ export function buildCleanupScript() {
 }
 
 export function buildStatusScript() {
-  return `(() => { const state = window[${JSON.stringify(STATE_KEY)}]; const nodes = state?.moduleNodes?.map((entry) => entry.node) || []; const mounted = nodes.filter((node) => node.isConnected); return { installed: Boolean(state), requestedThemeId: state?.requestedId || null, themeId: document.documentElement.dataset.workbuddySkinLab || null, pageMode: document.documentElement.dataset.wbPageMode || null, readability: document.documentElement.dataset.wbReadability || null, panel: Boolean(document.getElementById(${JSON.stringify(DOCK_ID)})), definedModules: nodes.length, modules: mounted.length, mountedModules: mounted.length, visibleModules: mounted.filter((node) => node.dataset.wbVisible === "true" && getComputedStyle(node).display !== "none").length, nativeOverlays: document.querySelectorAll("[data-wb-native-overlay-guard]").length }; })()`;
+  return `(() => { const state = window[${JSON.stringify(STATE_KEY)}]; const nodes = state?.moduleNodes?.map((entry) => entry.node) || []; const mounted = nodes.filter((node) => node.isConnected); return { installed: Boolean(state), requestedThemeId: state?.requestedId || null, themeId: document.documentElement.dataset.workbuddySkinLab || null, pageMode: document.documentElement.dataset.wbPageMode || null, readability: document.documentElement.dataset.wbReadability || null, homeCompatibility: state?.homeCompatibility || null, panel: Boolean(document.getElementById(${JSON.stringify(DOCK_ID)})), definedModules: nodes.length, modules: mounted.length, mountedModules: mounted.length, visibleModules: mounted.filter((node) => node.dataset.wbVisible === "true" && getComputedStyle(node).display !== "none").length, nativeOverlays: document.querySelectorAll("[data-wb-native-overlay-guard]").length }; })()`;
 }
 
 export function buildModuleInspectionScript() {

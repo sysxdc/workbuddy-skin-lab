@@ -6,13 +6,16 @@ import test from "node:test";
 
 import {
   IMAGE_MODEL,
+  IMAGE_PROCESS_TIMEOUT_MS,
   IMAGE_QUALITY,
+  IMAGE_TIMEOUT_MS,
   credentialConfigured,
   fixedManifest,
   publicHttpsUrl,
   run,
   validateGenerationSpec,
 } from "../scripts/theme-generation-job.mjs";
+import { run as runControlledImage } from "../scripts/run-nonelinear-image.mjs";
 
 const validSpec = {
   template: "home-scene-v1",
@@ -21,7 +24,7 @@ const validSpec = {
   art: { focusX: 0.68, focusY: 0.48, safeArea: "left" },
   copy: {
     homeHeader: { title: "暮色纸灯", subtitle: "在静谧灯影里继续今天" },
-    hero: { eyebrow: "TWILIGHT STUDIO", title: "在柔光里完成今天", subtitle: "保持节奏，让原生工作流继续服务。", badge: "专注中" },
+    hero: { eyebrow: "TWILIGHT STUDIO", title: "在柔光里完成今天", subtitle: "保持节奏，让原生工作流继续服务。" },
     scenes: {
       daily: { meaning: "office", title: "日常办公" },
       code: { meaning: "development", title: "代码开发" },
@@ -43,6 +46,7 @@ test("固定模板不序列化内部挂载字段、action 或自由布局", () =
   const manifest = fixedManifest(validateGenerationSpec(validSpec), "twilight-lamp");
   assert.deepEqual(manifest.homeHeader, validSpec.copy.homeHeader);
   assert.equal(manifest.modules.length, 5);
+  assert.equal("badge" in manifest.modules[0].text, false);
   assert.deepEqual(manifest.modules.map(({ id, slot, order }) => [id, slot, order]), [
     ["home-welcome", "home-hero", 0],
     ["scene-daily", "scene-icon", 0],
@@ -73,13 +77,15 @@ test("作业初始只授权背景一次，失败不重试，派生素材需背�
   const fakeSkill = join(root, "fake-skill.mjs");
   await writeFile(prompt, "soft twilight background without text", "utf8");
   await writeFile(fakeSkill, `
-    const args = process.argv.slice(2);
+    export async function run(args, dependencies) {
     const value = (key) => args[args.indexOf(key) + 1];
     const url = new URL("https://cdn.example.com/generated.png");
     url.searchParams.set("model", value("--model"));
     url.searchParams.set("quality", value("--quality"));
     url.searchParams.set("format", value("--response-format"));
-    process.stdout.write(JSON.stringify({status:"completed",images:[{url:url.href}],request_id:"req-redacted"}));
+    url.searchParams.set("timeout", dependencies.timeoutMs);
+    return {status:"completed",images:[{url:url.href}],request_id:"req-redacted"};
+    }
   `, "utf8");
   const initialized = await run(["init", "--name", "测试主题", "--prompt-file", prompt, "--jobs-root", jobs, "--store-root", themes]);
   const status = await run(["status", "--job", initialized.jobId, "--jobs-root", jobs, "--store-root", themes]);
@@ -90,10 +96,16 @@ test("作业初始只授权背景一次，失败不重试，派生素材需背�
   assert.match(generated.url, /model=gpt-image-2/);
   assert.match(generated.url, /quality=low/);
   assert.match(generated.url, /format=url/);
+  assert.match(generated.url, /timeout=600000/);
   assert.equal(IMAGE_MODEL, "gpt-image-2");
   assert.equal(IMAGE_QUALITY, "low");
   await assert.rejects(run(["run-image", "--job", initialized.jobId, "--role", "background", "--prompt-file", prompt, "--skill-script", fakeSkill, "--jobs-root", jobs, "--store-root", themes]), /没有新的计费调用授权/);
   await assert.rejects(run(["run-image", "--job", initialized.jobId, "--role", "scene-code", "--prompt-file", prompt, "--skill-script", fakeSkill, "--jobs-root", jobs, "--store-root", themes]), /没有新的计费调用授权|背景并授权/);
+  const generatedJobPath = join(jobs, initialized.jobId, "job.json");
+  const generatedJob = JSON.parse(await readFile(generatedJobPath, "utf8"));
+  generatedJob.outputs.background.normalized = "normalized/background.jpg";
+  generatedJob.outputs.background.previewedAt = new Date().toISOString();
+  await writeFile(generatedJobPath, JSON.stringify(generatedJob), "utf8");
   await run(["confirm", "--job", initialized.jobId, "--gate", "background", "--jobs-root", jobs, "--store-root", themes]);
   const afterConfirm = JSON.parse(await readFile(join(jobs, initialized.jobId, "job.json"), "utf8"));
   assert.equal(afterConfirm.callsAuthorized["scene-code"], 1);
@@ -130,7 +142,7 @@ test("NoneLinear 空输出记为 outcome_unknown，不留下 running 孤儿也�
   const prompt = join(root, "prompt.txt");
   const emptySkill = join(root, "empty-skill.mjs");
   await writeFile(prompt, "one paid background", "utf8");
-  await writeFile(emptySkill, "process.exitCode = 0;", "utf8");
+  await writeFile(emptySkill, "export async function run() {}", "utf8");
   const initialized = await run(["init", "--name", "空输出测试", "--prompt-file", prompt, "--jobs-root", jobs, "--store-root", themes]);
   const result = await run(["run-image", "--job", initialized.jobId, "--role", "background", "--prompt-file", prompt, "--skill-script", emptySkill, "--jobs-root", jobs, "--store-root", themes]);
   assert.deepEqual([result.status, result.code, result.outcome], ["failed", "skill_transport_error", "unknown"]);
@@ -168,6 +180,95 @@ test("resume 自动找到最近作业并给出唯一下一步或已保存主题"
   assert.equal(completed.requiresUser, false);
 });
 
+test("受控 NoneLinear 调用器固定使用 10 分钟超时", async (t) => {
+  assert.equal(IMAGE_TIMEOUT_MS, 600_000);
+  assert.equal(IMAGE_PROCESS_TIMEOUT_MS, 660_000);
+  const root = await mkdtemp(join(process.cwd(), ".test-controlled-image-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const fakeSkill = join(root, "fake-skill.mjs");
+  await writeFile(fakeSkill, "export async function run(argv, deps) { return {status:'completed', timeoutMs:deps.timeoutMs, argv}; }", "utf8");
+  const result = await runControlledImage(["--skill-script", fakeSkill, "--", "--prompt", "test"]);
+  assert.equal(result.timeoutMs, 600_000);
+  assert.deepEqual(result.argv, ["--prompt", "test"]);
+});
+
+test("direct 本地参考图不授权背景调用，标准化并要求预览后才能确认", async (t) => {
+  const root = await mkdtemp(join(process.cwd(), ".test-generation-direct-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const jobs = join(root, "jobs");
+  const themes = join(root, "themes");
+  const prompt = join(root, "prompt.txt");
+  const reference = join(root, "reference.png");
+  await writeFile(prompt, "direct background", "utf8");
+  const originalReference = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+  await writeFile(reference, originalReference);
+  const initialized = await run(["init", "--name", "直接背景", "--prompt-file", prompt, "--reference", reference, "--reference-mode", "direct", "--jobs-root", jobs, "--store-root", themes]);
+  let job = JSON.parse(await readFile(join(jobs, initialized.jobId, "job.json"), "utf8"));
+  assert.equal(job.backgroundMode, "direct");
+  assert.equal(job.callsAuthorized.background, 0);
+  await assert.rejects(run(["authorize", "--job", initialized.jobId, "--call", "background", "--jobs-root", jobs, "--store-root", themes]), /direct 模式/);
+  await assert.rejects(run(["run-image", "--job", initialized.jobId, "--role", "background", "--prompt-file", prompt, "--skill-script", reference, "--jobs-root", jobs, "--store-root", themes]), /direct 模式/);
+  await run(["confirm", "--job", initialized.jobId, "--gate", "upload", "--jobs-root", jobs, "--store-root", themes]);
+  job = JSON.parse(await readFile(join(jobs, initialized.jobId, "job.json"), "utf8"));
+  job.reference.url = "https://cdn.example.com/reference.png";
+  await writeFile(join(jobs, initialized.jobId, "job.json"), JSON.stringify(job), "utf8");
+  const ingested = await run(["ingest", "--job", initialized.jobId, "--role", "background", "--jobs-root", jobs, "--store-root", themes]);
+  assert.deepEqual([ingested.width, ingested.height], [2048, 1152]);
+  assert.deepEqual(await readFile(reference), originalReference);
+  await assert.rejects(run(["confirm", "--job", initialized.jobId, "--gate", "background", "--jobs-root", jobs, "--store-root", themes]), /preview/);
+  const preview = await run(["preview", "--job", initialized.jobId, "--role", "background", "--jobs-root", jobs, "--store-root", themes]);
+  assert.equal(preview.sourceMode, "direct");
+  assert.match(preview.path, /background\.jpg$/);
+  await run(["confirm", "--job", initialized.jobId, "--gate", "background", "--jobs-root", jobs, "--store-root", themes]);
+});
+
+test("direct 公开 HTTPS 参考图通过安全下载路径标准化", async (t) => {
+  const root = await mkdtemp(join(process.cwd(), ".test-generation-direct-url-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const jobs = join(root, "jobs");
+  const themes = join(root, "themes");
+  const prompt = join(root, "prompt.txt");
+  const downloaded = join(root, "downloaded.png");
+  await writeFile(prompt, "direct public background", "utf8");
+  await writeFile(downloaded, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"));
+  const initialized = await run(["init", "--name", "公开直接背景", "--prompt-file", prompt, "--reference", "https://cdn.example.com/reference.png", "--reference-mode", "direct", "--jobs-root", jobs, "--store-root", themes]);
+  const ingested = await run(["ingest", "--job", initialized.jobId, "--role", "background", "--jobs-root", jobs, "--store-root", themes], {
+    downloadImage: async (url) => ({ path: downloaded, size: 68, contentType: "image/png", url }),
+  });
+  assert.deepEqual([ingested.width, ingested.height], [2048, 1152]);
+  const preview = await run(["preview", "--job", initialized.jobId, "--role", "background", "--jobs-root", jobs, "--store-root", themes]);
+  assert.equal(preview.url, "https://cdn.example.com/reference.png");
+});
+
+test("任务页可直接固化主题并标记 Home 兼容性待检查", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "wb-generation-task-accept-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const jobs = join(root, "jobs");
+  const themes = join(root, "themes");
+  const prompt = join(root, "prompt.txt");
+  const specPath = join(root, "generation-spec.json");
+  await writeFile(prompt, "persist from task page", "utf8");
+  await writeFile(specPath, JSON.stringify(validSpec), "utf8");
+  const initialized = await run(["init", "--name", "任务页固化", "--prompt-file", prompt, "--jobs-root", jobs, "--store-root", themes]);
+  const jobRoot = join(jobs, initialized.jobId);
+  const normalizedRoot = join(jobRoot, "normalized");
+  await mkdir(normalizedRoot, { recursive: true });
+  const jobPath = join(jobRoot, "job.json");
+  const job = JSON.parse(await readFile(jobPath, "utf8"));
+  for (const role of ["background", "home-welcome", "scene-daily", "scene-code", "scene-design", "composer-companion"]) {
+    const name = role === "background" ? "background.jpg" : `${role}.png`;
+    await writeFile(join(normalizedRoot, name), role === "background" ? Buffer.from([0xff, 0xd8, 0xff, 0xd9]) : Buffer.from("\x89PNG\r\n\x1a\nfixture"));
+    job.outputs[role] = { url: `https://cdn.example.com/${role}.png`, downloaded: null, normalized: `normalized/${name}`, previewedAt: role === "background" ? new Date().toISOString() : null };
+  }
+  job.confirmations.background = true;
+  await writeFile(jobPath, JSON.stringify(job), "utf8");
+  await run(["confirm", "--job", initialized.jobId, "--gate", "final", "--jobs-root", jobs, "--store-root", themes]);
+  const accepted = await run(["accept", "--job", initialized.jobId, "--spec", specPath, "--jobs-root", jobs, "--store-root", themes]);
+  assert.equal(accepted.homeCompatibility, "pending");
+  assert.equal((await run(["resume", "--job", initialized.jobId, "--jobs-root", jobs, "--store-root", themes])).nextAction, "apply-theme");
+  assert.equal((await run(["status", "--job", initialized.jobId, "--jobs-root", jobs, "--store-root", themes])).jobStatus, "accepted-pending-home");
+});
+
 test("build 只展开固定模板并继续经过主题加载校验，discard 可恢复且清临时记录", async () => {
   const root = await mkdtemp(join(tmpdir(), "wb-generation-build-"));
   const jobs = join(root, "jobs");
@@ -186,8 +287,9 @@ test("build 只展开固定模板并继续经过主题加载校验，discard 可
   for (const role of ["background", "home-welcome", "scene-daily", "scene-code", "scene-design", "composer-companion"]) {
     const name = role === "background" ? "background.jpg" : `${role}.png`;
     await writeFile(join(normalizedRoot, name), role === "background" ? Buffer.from([0xff, 0xd8, 0xff, 0xd9]) : Buffer.from("\x89PNG\r\n\x1a\nfixture"));
-    job.outputs[role] = { url: `https://cdn.example.com/${role}.png`, downloaded: `downloads/${role}.png`, normalized: `normalized/${name}` };
+    job.outputs[role] = { url: `https://cdn.example.com/${role}.png`, downloaded: `downloads/${role}.png`, normalized: `normalized/${name}`, previewedAt: role === "background" ? new Date().toISOString() : null };
   }
+  job.confirmations.background = true;
   await writeFile(jobPath, JSON.stringify(job), "utf8");
   await assert.rejects(run(["build", "--job", initialized.jobId, "--spec", specPath, "--jobs-root", jobs, "--store-root", themes, "--discarded-root", discarded]), /并入 verify-home/);
   const proof = { capturedAt: new Date().toISOString(), targetId: "home-target", anchors: { "scene-tabs": { present: true, rect: { width: 296, height: 36 } }, "home-composer": { present: true, rect: { width: 752, height: 224 } } } };
@@ -214,6 +316,7 @@ test("build 只展开固定模板并继续经过主题加载校验，discard 可
   await run(["confirm", "--job", initialized.jobId, "--gate", "final", "--jobs-root", jobs, "--store-root", themes, "--discarded-root", discarded]);
   const accepted = await run(["accept", "--job", initialized.jobId, "--jobs-root", jobs, "--store-root", themes, "--discarded-root", discarded]);
   assert.equal(accepted.themeId, manifest.id);
+  assert.equal(accepted.homeCompatibility, "compatible");
   const reopened = await run(["reopen-verification", "--job", initialized.jobId, "--jobs-root", jobs, "--store-root", themes, "--discarded-root", discarded]);
   assert.equal(reopened.jobStatus, "awaiting-home-verification");
   const discardedResult = await run(["discard", "--job", initialized.jobId, "--jobs-root", jobs, "--store-root", themes, "--discarded-root", discarded]);
@@ -222,13 +325,13 @@ test("build 只展开固定模板并继续经过主题加载校验，discard 可
   for (const output of Object.values(finalJob.outputs)) assert.deepEqual([output.url, output.downloaded, output.normalized], [null, null, null]);
 });
 
-test("accept 拒绝任务页或未完成机器验收的作业", async () => {
+test("accept 不要求 Home，但拒绝未展示背景或素材不完整的作业", async () => {
   const root = await mkdtemp(join(tmpdir(), "wb-generation-accept-"));
   const jobs = join(root, "jobs");
   const themes = join(root, "themes");
   const prompt = join(root, "prompt.txt");
   await writeFile(prompt, "accept gate", "utf8");
   const initialized = await run(["init", "--name", "验收门禁", "--prompt-file", prompt, "--jobs-root", jobs, "--store-root", themes]);
-  await assert.rejects(run(["confirm", "--job", initialized.jobId, "--gate", "final", "--jobs-root", jobs, "--store-root", themes]), /verify-home|预览主题/);
-  await assert.rejects(run(["accept", "--job", initialized.jobId, "--jobs-root", jobs, "--store-root", themes]), /verify-home/);
+  await assert.rejects(run(["confirm", "--job", initialized.jobId, "--gate", "final", "--jobs-root", jobs, "--store-root", themes]), /全部素材/);
+  await assert.rejects(run(["accept", "--job", initialized.jobId, "--jobs-root", jobs, "--store-root", themes]), /展示并确认背景/);
 });

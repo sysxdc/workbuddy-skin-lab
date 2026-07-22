@@ -43,7 +43,7 @@ try {
   }
   $skinScripts = Join-Path $skinStage 'scripts'
   New-Item -ItemType Directory -Force -Path $skinScripts | Out-Null
-  foreach ($file in @('theme-generation-job.mjs','upload-reference.py','normalize-generated-image.py')) {
+  foreach ($file in @('theme-generation-job.mjs','run-nonelinear-image.mjs','upload-reference.py','normalize-generated-image.py')) {
     Copy-Item -LiteralPath (Join-Path $repositoryRoot "scripts\$file") -Destination $skinScripts
   }
   foreach ($item in (Get-ChildItem -LiteralPath $nonelinearRoot -Force)) {
@@ -66,6 +66,8 @@ try {
 
   & (Get-Command node -ErrorAction Stop).Source --check (Join-Path $skinStage 'scripts\theme-generation-job.mjs')
   if ($LASTEXITCODE -ne 0) { throw 'WorkBuddy Skin Lab Skill 脚本语法检查失败。' }
+  & (Get-Command node -ErrorAction Stop).Source --check (Join-Path $skinStage 'scripts\run-nonelinear-image.mjs')
+  if ($LASTEXITCODE -ne 0) { throw 'NoneLinear 受控调用器语法检查失败。' }
   & (Get-Command node -ErrorAction Stop).Source --check (Join-Path $imageStage 'scripts\generate-image.mjs')
   if ($LASTEXITCODE -ne 0) { throw 'NoneLinear Image Skill 脚本语法检查失败。' }
 

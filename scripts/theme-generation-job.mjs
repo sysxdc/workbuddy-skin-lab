@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { lookup } from "node:dns/promises";
 import { access, copyFile, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { isIP } from "node:net";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { resolveStatePaths } from "../src/constants.mjs";
@@ -21,6 +21,8 @@ const DERIVED_ROLES = IMAGE_ROLES.slice(1);
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const CONTENT_TYPES = new Map([["image/jpeg", ".jpg"], ["image/png", ".png"], ["image/webp", ".webp"]]);
 const MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024;
+export const IMAGE_TIMEOUT_MS = 600_000;
+export const IMAGE_PROCESS_TIMEOUT_MS = 660_000;
 
 function stateRoots(overrides = {}) {
   const state = resolveStatePaths();
@@ -60,6 +62,9 @@ async function loadJob(roots, jobId) {
   const root = jobPath(roots.jobsRoot, jobId);
   const job = JSON.parse(await readFile(join(root, "job.json"), "utf8"));
   if (job.version !== JOB_VERSION || job.id !== jobId) throw new Error("job.json 无效");
+  job.backgroundMode ??= job.reference ? "edit" : "generate";
+  job.generation ??= {};
+  job.generation.timeoutMs ??= IMAGE_TIMEOUT_MS;
   return { root, job };
 }
 
@@ -174,15 +179,17 @@ function processResult(stdout, label) {
   return result;
 }
 
-async function runProcess(executable, args, { maxOutput = 2 * 1024 * 1024, env = process.env } = {}) {
+async function runProcess(executable, args, { maxOutput = 2 * 1024 * 1024, env = process.env, timeoutMs = 0 } = {}) {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(executable, args, { shell: false, windowsHide: true, env });
     let stdout = "";
     let stderr = "";
+    let timedOut = false;
+    const timer = timeoutMs > 0 ? setTimeout(() => { timedOut = true; child.kill(); }, timeoutMs) : null;
     child.stdout.on("data", (chunk) => { stdout += chunk; if (stdout.length > maxOutput) child.kill(); });
     child.stderr.on("data", (chunk) => { stderr += chunk; if (stderr.length > 16_384) stderr = stderr.slice(-16_384); });
-    child.on("error", reject);
-    child.on("close", (code) => resolvePromise({ code, stdout, stderr }));
+    child.on("error", (error) => { if (timer) clearTimeout(timer); reject(error); });
+    child.on("close", (code) => { if (timer) clearTimeout(timer); resolvePromise({ code, stdout, stderr, timedOut }); });
   });
 }
 
@@ -201,8 +208,9 @@ export function validateGenerationSpec(input) {
   for (const [key, limit] of Object.entries({ title: 24, subtitle: 36 })) {
     if (typeof homeHeader?.[key] !== "string" || !homeHeader[key].trim() || homeHeader[key].trim().length > limit) throw new Error(`copy.homeHeader.${key} 无效`);
   }
-  const lengths = { eyebrow: 32, title: 48, subtitle: 80, badge: 16 };
-  for (const [key, limit] of Object.entries(lengths)) if (typeof hero?.[key] !== "string" || !hero[key].trim() || hero[key].trim().length > limit) throw new Error(`copy.hero.${key} 无效`);
+  const requiredHero = { eyebrow: 32, title: 48, subtitle: 80 };
+  for (const [key, limit] of Object.entries(requiredHero)) if (typeof hero?.[key] !== "string" || !hero[key].trim() || hero[key].trim().length > limit) throw new Error(`copy.hero.${key} 无效`);
+  if (hero?.badge != null && (typeof hero.badge !== "string" || hero.badge.trim().length > 16)) throw new Error("copy.hero.badge 无效");
   const sceneRules = { daily: "office", code: "development", design: "creative" };
   for (const [key, meaning] of Object.entries(sceneRules)) {
     if (scenes?.[key]?.meaning !== meaning || typeof scenes[key].title !== "string" || !scenes[key].title.trim() || scenes[key].title.trim().length > 16) throw new Error(`copy.scenes.${key} 必须保留 ${meaning} 语义且标题不超过 16 字符`);
@@ -220,7 +228,7 @@ export function validateGenerationSpec(input) {
     art: { focusX, focusY, safeArea: input.art.safeArea },
     copy: {
       homeHeader: { title: homeHeader.title.trim(), subtitle: homeHeader.subtitle.trim() },
-      hero: Object.fromEntries(Object.entries(hero).map(([key, value]) => [key, value.trim()])),
+      hero: Object.fromEntries(Object.entries(hero).filter(([, value]) => typeof value === "string" && value.trim()).map(([key, value]) => [key, value.trim()])),
       scenes: Object.fromEntries(Object.entries(sceneRules).map(([key, meaning]) => [key, { meaning, title: scenes[key].title.trim() }])),
       composerLabel: input.copy.composerLabel.trim(),
     },
@@ -259,26 +267,32 @@ async function initialize(options, roots) {
     if (/^https:/i.test(options.reference)) reference = { kind: "url", url: publicHttpsUrl(options.reference) };
     else reference = { kind: "local", path: resolve(options.reference), url: null };
   }
-  const callsAuthorized = Object.fromEntries(IMAGE_ROLES.map((role) => [role, role === "background" ? 1 : 0]));
+  const requestedMode = options["reference-mode"];
+  if (requestedMode && !["edit", "direct"].includes(requestedMode)) throw new Error("reference-mode 必须是 edit 或 direct");
+  if (requestedMode && !reference) throw new Error("reference-mode 只能与 --reference 一起使用");
+  const backgroundMode = reference ? (requestedMode || "edit") : "generate";
+  const callsAuthorized = Object.fromEntries(IMAGE_ROLES.map((role) => [role, role === "background" && backgroundMode !== "direct" ? 1 : 0]));
   const job = {
     version: JOB_VERSION, id, template: TEMPLATE_VERSION, name, prompt, status: "initialized",
-    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), reference,
-    generation: { model: IMAGE_MODEL, quality: IMAGE_QUALITY, responseFormat: "url", roles: Object.fromEntries(IMAGE_ROLES.map((role) => [role, roleSpec(role)])) },
+    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), reference, backgroundMode,
+    generation: { model: IMAGE_MODEL, quality: IMAGE_QUALITY, responseFormat: "url", timeoutMs: IMAGE_TIMEOUT_MS, roles: Object.fromEntries(IMAGE_ROLES.map((role) => [role, roleSpec(role)])) },
     confirmations: { upload: false, background: false, final: false }, confirmationTimes: { upload: null, background: null, final: null },
     callsAuthorized, calls: [], outputs: {}, generationSpec: null, theme: null, needsBuild: true, homeProof: null, verification: null,
   };
   await atomicJson(join(root, "job.json"), job);
-  return { status: "completed", jobId: id, path: root, next: reference?.kind === "local" ? "confirm-upload" : "run-background" };
+  return { status: "completed", jobId: id, path: root, backgroundMode, next: reference?.kind === "local" ? "confirm-upload" : backgroundMode === "direct" ? "ingest-background" : "run-background" };
 }
 
 async function preflight(options) {
   const skillScript = options["skill-script"] ? resolve(options["skill-script"]) : null;
   const python = options.python || "python";
   const normalizer = resolve(options.normalizer || join(dirname(fileURLToPath(import.meta.url)), "normalize-generated-image.py"));
+  const adapter = resolve(options.adapter || join(dirname(fileURLToPath(import.meta.url)), "run-nonelinear-image.mjs"));
   const [skillExists, normalizerExists] = await Promise.all([
     skillScript ? stat(skillScript).then((info) => info.isFile(), () => false) : false,
     stat(normalizer).then((info) => info.isFile(), () => false),
   ]);
+  const adapterExists = await stat(adapter).then((info) => info.isFile(), () => false);
   let skillSyntax = false;
   let resolvedSkillScript = null;
   if (skillExists) {
@@ -286,8 +300,11 @@ async function preflight(options) {
     const checked = await runProcess(options.node || process.execPath, ["--check", resolvedSkillScript], { maxOutput: 4096 }).catch(() => ({ code: -1 }));
     skillSyntax = checked.code === 0;
   }
+  const adapterCheck = adapterExists
+    ? await runProcess(options.node || process.execPath, ["--check", adapter], { maxOutput: 4096 }).catch(() => ({ code: -1 }))
+    : { code: -1 };
   const pythonCheck = await runProcess(python, ["-c", "import PIL; print('configured')"], { maxOutput: 1024 }).catch(() => ({ code: -1 }));
-  return { status: skillExists && skillSyntax && normalizerExists && pythonCheck.code === 0 && credentialConfigured() ? "completed" : "failed", nonelinearSkill: skillExists ? "configured" : "missing", nonelinearSkillSyntax: skillSyntax ? "configured" : "invalid", nonelinearSkillPath: resolvedSkillScript, apiKey: credentialConfigured() ? "configured" : "missing", pythonPillow: pythonCheck.code === 0 ? "configured" : "missing", normalizer: normalizerExists ? "configured" : "missing" };
+  return { status: skillExists && skillSyntax && adapterCheck.code === 0 && normalizerExists && pythonCheck.code === 0 && credentialConfigured() ? "completed" : "failed", nonelinearSkill: skillExists ? "configured" : "missing", nonelinearSkillSyntax: skillSyntax ? "configured" : "invalid", nonelinearSkillPath: resolvedSkillScript, controlledAdapter: adapterCheck.code === 0 ? "configured" : "missing", imageTimeoutMs: IMAGE_TIMEOUT_MS, apiKey: credentialConfigured() ? "configured" : "missing", pythonPillow: pythonCheck.code === 0 ? "configured" : "missing", normalizer: normalizerExists ? "configured" : "missing" };
 }
 
 async function confirmGate(options, roots) {
@@ -296,14 +313,15 @@ async function confirmGate(options, roots) {
   if (gate === "upload") job.confirmations.upload = true;
   else if (gate === "background") {
     if (job.confirmations.background) throw new Error("背景已经确认；只有重新生成背景后才能再次授权派生素材");
-    if (!job.outputs.background?.url) throw new Error("确认背景前必须先成功生成背景");
+    if (!job.outputs.background?.normalized) throw new Error("确认背景前必须先准备并标准化背景");
+    if (!job.outputs.background?.previewedAt) throw new Error("确认背景前必须先运行 preview 展示当前背景");
     job.confirmations.background = true;
     for (const role of DERIVED_ROLES) {
       const attempts = job.calls.filter((call) => call.role === role).length;
       job.callsAuthorized[role] = attempts + 1;
     }
   } else if (gate === "final") {
-    if (!job.theme?.path || job.status !== "verified" || !validVerification(job)) throw new Error("最终确认前必须完成 verify-home 机器验收");
+    if (!job.confirmations.background || !IMAGE_ROLES.every((role) => job.outputs?.[role]?.normalized)) throw new Error("最终确认前必须完成全部素材并确认背景");
     job.confirmations.final = true;
   } else throw new Error("gate 必须是 upload、background 或 final");
   job.confirmationTimes ??= { upload: null, background: null, final: null };
@@ -316,6 +334,7 @@ async function authorizeRetry(options, roots) {
   const { root, job } = await loadJob(roots, options.job);
   const role = options.call;
   roleSpec(role);
+  if (role === "background" && job.backgroundMode === "direct") throw new Error("direct 模式不产生背景生图调用，不能授权背景重试");
   const attempts = job.calls.filter((call) => call.role === role).length;
   if (attempts < job.callsAuthorized[role]) throw new Error(`${role} 仍有尚未使用的调用授权`);
   if (role !== "background" && !job.confirmations.background) throw new Error("背景未确认，不能授权派生素材调用");
@@ -362,6 +381,7 @@ async function runImage(options, roots) {
   const { root, job } = await loadJob(roots, options.job);
   const role = options.role;
   const spec = roleSpec(role);
+  if (role === "background" && job.backgroundMode === "direct") throw new Error("direct 模式直接使用参考图，不允许发起背景生图调用");
   const attempts = job.calls.filter((call) => call.role === role).length;
   if (attempts >= job.callsAuthorized[role]) throw new Error(`${role} 没有新的计费调用授权`);
   if (role !== "background" && !job.confirmations.background) throw new Error("派生素材必须在用户确认背景并授权 5 次调用后生成");
@@ -369,23 +389,32 @@ async function runImage(options, roots) {
   const skillScript = await realpath(resolve(options["skill-script"])).catch(() => { throw new Error("$nonelinear-image 脚本真实路径不可用；本次未发起调用"); });
   const prompt = (await readFile(resolve(options["prompt-file"]), "utf8")).trim();
   if (!prompt) throw new Error("图片提示词不能为空");
-  const referenceUrl = role === "background" ? job.reference?.url : job.outputs.background?.url;
+  const referenceUrl = role === "background" ? job.reference?.url : (job.outputs.background?.url || job.reference?.url);
   if (job.reference?.kind === "local" && role === "background" && !referenceUrl) throw new Error("本地参考图尚未上传");
   if (referenceUrl) await assertPublicDns(publicHttpsUrl(referenceUrl));
-  const args = [skillScript, "--model", IMAGE_MODEL, "--prompt", prompt, "--size", spec.size, "--quality", IMAGE_QUALITY, "--response-format", "url"];
-  if (referenceUrl) args.push("--operation", "edit", "--image", publicHttpsUrl(referenceUrl));
+  const imageArgs = ["--model", IMAGE_MODEL, "--prompt", prompt, "--size", spec.size, "--quality", IMAGE_QUALITY, "--response-format", "url"];
+  if (referenceUrl) imageArgs.push("--operation", "edit", "--image", publicHttpsUrl(referenceUrl));
+  const adapter = await realpath(resolve(options.adapter || join(dirname(fileURLToPath(import.meta.url)), "run-nonelinear-image.mjs"))).catch(() => { throw new Error("NoneLinear 受控调用器不可用；本次未发起调用"); });
+  const args = [adapter, "--skill-script", skillScript, "--", ...imageArgs];
   const call = { role, prompt, model: IMAGE_MODEL, quality: IMAGE_QUALITY, size: spec.size, responseFormat: "url", startedAt: new Date().toISOString(), status: "running" };
   job.calls.push(call);
   await saveJob(root, job);
   let result;
   try {
-    result = await runProcess(options.node || process.execPath, args, { maxOutput: 2 * 1024 * 1024 });
+    result = await runProcess(options.node || process.execPath, args, { maxOutput: 2 * 1024 * 1024, timeoutMs: IMAGE_PROCESS_TIMEOUT_MS });
   } catch (error) {
     call.finishedAt = new Date().toISOString();
     call.status = "outcome_unknown";
     call.code = "skill_transport_error";
     await saveJob(root, job);
     return { status: "failed", code: call.code, outcome: "unknown", error: redactSecrets(error.message || error).slice(0, 500) };
+  }
+  if (result.timedOut) {
+    call.finishedAt = new Date().toISOString();
+    call.status = "outcome_unknown";
+    call.code = "skill_timeout_unknown";
+    await saveJob(root, job);
+    return { status: "failed", code: call.code, outcome: "unknown", error: "生图超过 11 分钟父进程保护上限；不会自动重试" };
   }
   let parsed;
   try {
@@ -406,25 +435,48 @@ async function runImage(options, roots) {
     return { status: "failed", code: call.code, error: redactSecrets(parsed.error || "NoneLinear 生图失败").slice(0, 500) };
   }
   const url = publicHttpsUrl(parsed.images?.[0]?.url);
-  job.outputs[role] = { url, requestId: call.requestId, downloaded: null, normalized: null };
+  job.outputs[role] = { url, requestId: call.requestId, downloaded: null, normalized: null, previewedAt: null, sourceMode: role === "background" ? job.backgroundMode : "generated" };
   await saveJob(root, job);
   return { status: "completed", role, url, requestId: call.requestId };
 }
 
-async function ingest(options, roots) {
+async function ingest(options, roots, dependencies = {}) {
   const { root, job } = await loadJob(roots, options.job);
   const role = options.role;
   const spec = roleSpec(role);
-  const output = job.outputs[role];
-  if (!output?.url) throw new Error(`${role} 没有可下载的生成结果`);
-  const downloaded = await downloadImage(output.url, join(root, "downloads", role));
+  let output = job.outputs[role];
+  let sourcePath;
+  let downloaded = null;
+  if (role === "background" && job.backgroundMode === "direct") {
+    if (!job.reference) throw new Error("direct 模式缺少参考图");
+    output ??= { url: job.reference.url || null, requestId: null, downloaded: null, normalized: null, previewedAt: null, sourceMode: "direct" };
+    if (job.reference.kind === "local") {
+      if (!job.confirmations.upload || !job.reference.url) throw new Error("本地参考图必须先确认上传并取得公开 URL");
+      sourcePath = resolve(job.reference.path);
+      if (![".png", ".jpg", ".jpeg", ".webp"].includes(extname(sourcePath).toLowerCase())) throw new Error("直接背景只接受 PNG、JPEG 或 WebP");
+      const sourceInfo = await stat(sourcePath);
+      if (!sourceInfo.isFile() || sourceInfo.size < 1 || sourceInfo.size > MAX_DOWNLOAD_BYTES) throw new Error("本地参考图必须是 1 B 到 20 MB 的普通文件");
+      output.url = job.reference.url;
+    } else {
+      downloaded = await (dependencies.downloadImage || downloadImage)(job.reference.url, join(root, "downloads", role));
+      sourcePath = downloaded.path;
+      output.url = job.reference.url;
+    }
+  } else {
+    if (!output?.url) throw new Error(`${role} 没有可下载的生成结果`);
+    downloaded = await (dependencies.downloadImage || downloadImage)(output.url, join(root, "downloads", role));
+    sourcePath = downloaded.path;
+  }
   const normalizedPath = join(root, "normalized", role === "background" ? "background.jpg" : `${role}.png`);
   const normalizer = resolve(options.normalizer || join(dirname(fileURLToPath(import.meta.url)), "normalize-generated-image.py"));
-  const normalized = await runProcess(options.python || "python", [normalizer, downloaded.path, normalizedPath, "--kind", spec.kind], { maxOutput: 32_768 });
+  const normalized = await runProcess(options.python || "python", [normalizer, sourcePath, normalizedPath, "--kind", spec.kind], { maxOutput: 32_768 });
   const parsed = processResult(normalized.stdout, "normalize-generated-image");
   if (parsed.status !== "completed" || normalized.code !== 0) return { status: "failed", code: parsed.code || "normalize_error", error: redactSecrets(parsed.error || "图片标准化失败").slice(0, 500) };
-  output.downloaded = relative(root, downloaded.path);
+  output.downloaded = downloaded ? relative(root, downloaded.path) : null;
   output.normalized = relative(root, normalizedPath);
+  output.previewedAt = null;
+  output.sourceMode ??= role === "background" ? job.backgroundMode : "generated";
+  job.outputs[role] = output;
   job.needsBuild = true;
   job.verification = null;
   job.confirmations.final = false;
@@ -434,11 +486,29 @@ async function ingest(options, roots) {
   return { status: "completed", role, path: normalizedPath, width: parsed.width, height: parsed.height, size: parsed.size };
 }
 
+async function previewOutput(options, roots) {
+  const { root, job } = await loadJob(roots, options.job);
+  const role = options.role;
+  if (role !== "background") throw new Error("首版 preview 只支持 background");
+  const output = job.outputs.background;
+  if (!output?.normalized) throw new Error("背景尚未标准化，不能展示");
+  const path = jobFile(root, output.normalized, "background.normalized");
+  const info = await stat(path);
+  if (!info.isFile() || info.size < 1) throw new Error("背景预览文件无效");
+  output.previewedAt = new Date().toISOString();
+  await saveJob(root, job);
+  const url = output.url ? publicHttpsUrl(output.url) : null;
+  return {
+    status: "completed", role, sourceMode: output.sourceMode || job.backgroundMode, path, url,
+    markdown: url ? `![WorkBuddy 背景预览](${url})` : null,
+    instruction: "请查看上方图片或打开返回的地址；满意后再明确确认背景。",
+    previewedAt: output.previewedAt,
+  };
+}
+
 async function buildTheme(options, roots, homeProof = null) {
   const { root, job } = await loadJob(roots, options.job);
-  if (!homeProof?.targetId || !homeProof.anchors?.["scene-tabs"]?.present || !homeProof.anchors?.["home-composer"]?.present) {
-    throw new Error("build 只能由 verify-home 在本次真实 Home 锚点探测成功后执行");
-  }
+  if (!options.spec) throw new Error("构建主题需要 --spec");
   const spec = validateGenerationSpec(JSON.parse(await readFile(resolve(options.spec), "utf8")));
   for (const role of IMAGE_ROLES) if (!job.outputs[role]?.normalized) throw new Error(`${role} 尚未标准化`);
   const suffix = createHash("sha256").update(job.id).digest("hex").slice(0, 8);
@@ -474,7 +544,7 @@ async function buildTheme(options, roots, homeProof = null) {
   job.homeProof = homeProof;
   job.verification = null;
   job.needsBuild = false;
-  job.status = "awaiting-home-verification";
+  job.status = homeProof ? "awaiting-home-verification" : "media-ready";
   await saveJob(root, job);
   return { status: "completed", themeId: id, path: destination };
 }
@@ -497,7 +567,8 @@ function progressFor(job) {
   if (job.validation?.background && job.theme?.path) persistedRoles.add("background");
   const readyRoles = IMAGE_ROLES.filter((role) => Boolean(job.outputs?.[role]?.normalized) || persistedRoles.has(role));
   return { ready: readyRoles.length, total: IMAGE_ROLES.length, roles: Object.fromEntries(IMAGE_ROLES.map((role) => [role, {
-    generated: Boolean(job.outputs?.[role]?.url),
+    generated: job.outputs?.[role]?.sourceMode !== "direct" && Boolean(job.outputs?.[role]?.url),
+    sourceMode: job.outputs?.[role]?.sourceMode ?? null,
     normalized: Boolean(job.outputs?.[role]?.normalized),
     persisted: persistedRoles.has(role),
     attempts: job.calls.filter((call) => call.role === role).length,
@@ -507,12 +578,7 @@ function progressFor(job) {
 
 function nextFor(job) {
   if (job.status === "discarded") return { nextAction: "discarded", requiresUser: false };
-  if (job.status === "accepted") return { nextAction: "apply-theme", requiresUser: false };
-  if (job.theme?.path && job.needsBuild === false) {
-    if (job.status === "verified" && !job.confirmations.final) return { nextAction: "confirm-final", requiresUser: true };
-    if (job.status === "verified" && job.confirmations.final) return { nextAction: "accept", requiresUser: false };
-    return { nextAction: "verify-home", requiresUser: true };
-  }
+  if (["accepted", "accepted-pending-home", "accepted-home-compatible", "accepted-home-incompatible"].includes(job.status)) return { nextAction: "apply-theme", requiresUser: false };
   if (job.reference?.kind === "local" && !job.confirmations.upload) return { nextAction: "confirm-upload", requiresUser: true };
   if (job.reference?.kind === "local" && !job.reference.url) return { nextAction: "upload-reference", requiresUser: false };
   const nextRole = (role) => {
@@ -525,16 +591,17 @@ function nextFor(job) {
       ? { nextAction: `run-${role}`, requiresUser: false }
       : { nextAction: `authorize-${role}`, requiresUser: true };
   };
+  if (job.backgroundMode === "direct" && !job.outputs?.background?.normalized) return { nextAction: "ingest-background", requiresUser: false };
   const background = nextRole("background");
   if (background) return background;
+  if (!job.outputs.background.previewedAt) return { nextAction: "preview-background", requiresUser: false };
   if (!job.confirmations.background) return { nextAction: "confirm-background", requiresUser: true };
   for (const role of DERIVED_ROLES) {
     const next = nextRole(role);
     if (next) return next;
   }
-  if (job.status === "verified" && !job.confirmations.final) return { nextAction: "confirm-final", requiresUser: true };
-  if (job.status === "verified" && job.confirmations.final) return { nextAction: "accept", requiresUser: false };
-  return { nextAction: "verify-home", requiresUser: true };
+  if (!job.confirmations.final) return { nextAction: "confirm-final", requiresUser: true };
+  return { nextAction: "accept", requiresUser: false };
 }
 
 async function resumeJob(options, roots) {
@@ -560,7 +627,7 @@ async function resumeJob(options, roots) {
 
 async function verifyHomeJob(options, roots, deps) {
   let loaded = await loadJob(roots, options.job);
-  if (loaded.job.status === "accepted") throw new Error("已接受作业必须先执行 reopen-verification");
+  const wasAccepted = ["accepted", "accepted-pending-home", "accepted-home-compatible", "accepted-home-incompatible"].includes(loaded.job.status);
   const waitSeconds = options.wait == null ? 60 : Number(options.wait);
   const port = options.port == null ? 9223 : Number(options.port);
   const homeProof = await deps.waitForHomeAnchors({ port, waitSeconds });
@@ -587,7 +654,7 @@ async function verifyHomeJob(options, roots, deps) {
   loaded = await loadJob(roots, options.job);
   loaded.job.homeProof = homeProof;
   loaded.job.verification = verification;
-  loaded.job.status = "verified";
+  loaded.job.status = wasAccepted ? "accepted-home-compatible" : "verified";
   await saveJob(loaded.root, loaded.job);
   return { status: "completed", jobId: loaded.job.id, jobStatus: loaded.job.status, verification };
 }
@@ -610,17 +677,16 @@ async function reopenVerification(options, roots) {
 }
 
 async function acceptJob(options, roots) {
-  const { root, job } = await loadJob(roots, options.job);
-  if (!job.confirmations.final || !job.theme?.path || job.status !== "verified" || !validVerification(job)) throw new Error("accept 前必须完成 verify-home、最终确认和无残留复验");
+  let { root, job } = await loadJob(roots, options.job);
+  if (!job.confirmations.final || !job.confirmations.background || !job.outputs.background?.previewedAt) throw new Error("accept 前必须展示并确认背景，再完成最终确认");
+  if (!IMAGE_ROLES.every((role) => job.outputs?.[role]?.normalized)) throw new Error("accept 前必须完成全部六张素材");
+  if (!job.theme?.path || job.needsBuild) {
+    await buildTheme(options, roots, null);
+    ({ root, job } = await loadJob(roots, options.job));
+  }
   const themePath = resolve(job.theme.path);
   if (!inside(roots.storeRoot, themePath)) throw new Error("接受主题不在用户主题目录中");
   await loadTheme(themePath);
-  for (const [label, screenshot] of Object.entries(job.verification.screenshots)) {
-    const screenshotPath = resolve(screenshot);
-    if (!inside(root, screenshotPath)) throw new Error(`验收截图 ${label} 不在作业目录中`);
-    const info = await stat(screenshotPath);
-    if (!info.isFile() || info.size < 1) throw new Error(`验收截图 ${label} 无效`);
-  }
   for (const output of Object.values(job.outputs)) {
     if (!output) continue;
     output.url = null;
@@ -630,9 +696,9 @@ async function acceptJob(options, roots) {
   if (job.reference) job.reference.url = null;
   await rm(join(root, "downloads"), { recursive: true, force: true });
   await rm(join(root, "normalized"), { recursive: true, force: true });
-  job.status = "accepted";
+  job.status = validVerification(job) ? "accepted-home-compatible" : "accepted-pending-home";
   await saveJob(root, job);
-  return { status: "completed", themeId: job.theme.id, path: job.theme.path };
+  return { status: "completed", themeId: job.theme.id, path: job.theme.path, homeCompatibility: validVerification(job) ? "compatible" : "pending", next: "apply-theme" };
 }
 
 async function discardJob(options, roots) {
@@ -661,7 +727,8 @@ async function discardJob(options, roots) {
 }
 
 function safeStatus(job) {
-  return { status: "completed", jobId: job.id, jobStatus: job.status, template: job.template, generation: job.generation, confirmations: job.confirmations, confirmationTimes: job.confirmationTimes, callsAuthorized: job.callsAuthorized, calls: job.calls.map(({ role, model, quality, size, status, code, requestId }) => ({ role, model, quality, size, status, code, requestId })), outputs: Object.fromEntries(Object.entries(job.outputs).map(([role, output]) => [role, output ? { downloaded: output.downloaded, normalized: output.normalized, hasPendingUrl: Boolean(output.url) } : null])), needsBuild: job.needsBuild ?? Boolean(!job.theme?.path), validation: job.validation ?? null, homeProof: job.homeProof ?? null, verification: job.verification ?? null, theme: job.theme, ...nextFor(job), progress: progressFor(job) };
+  const homeCompatibility = job.status === "accepted-home-compatible" ? "compatible" : job.status === "accepted-home-incompatible" ? "incompatible" : job.status === "accepted-pending-home" ? "pending" : null;
+  return { status: "completed", jobId: job.id, jobStatus: job.status, backgroundMode: job.backgroundMode, homeCompatibility, template: job.template, generation: job.generation, confirmations: job.confirmations, confirmationTimes: job.confirmationTimes, callsAuthorized: job.callsAuthorized, calls: job.calls.map(({ role, model, quality, size, status, code, requestId }) => ({ role, model, quality, size, status, code, requestId })), outputs: Object.fromEntries(Object.entries(job.outputs).map(([role, output]) => [role, output ? { downloaded: output.downloaded, normalized: output.normalized, previewedAt: output.previewedAt ?? null, sourceMode: output.sourceMode ?? null, hasPendingUrl: Boolean(output.url) } : null])), needsBuild: job.needsBuild ?? Boolean(!job.theme?.path), validation: job.validation ?? null, homeProof: job.homeProof ?? null, verification: job.verification ?? null, theme: job.theme, ...nextFor(job), progress: progressFor(job) };
 }
 
 function parseOptions(argv) {
@@ -680,14 +747,15 @@ export async function run(argv, overrides = {}) {
   const options = parseOptions(argv);
   const roots = stateRoots({ jobsRoot: options["jobs-root"], storeRoot: options["store-root"], discardedRoot: options["discarded-root"] });
   const deps = { waitForHomeAnchors, verifyHomeTheme, ...overrides };
-  if (command === "help") return { status: "completed", commands: ["init", "preflight", "confirm", "authorize", "upload-reference", "run-image", "ingest", "verify-home", "reopen-verification", "resume", "status", "accept", "discard"] };
+  if (command === "help") return { status: "completed", commands: ["init", "preflight", "confirm", "authorize", "upload-reference", "run-image", "ingest", "preview", "verify-home", "reopen-verification", "resume", "status", "accept", "discard"] };
   if (command === "init") { await mkdir(roots.jobsRoot, { recursive: true }); return initialize(options, roots); }
   if (command === "preflight") return preflight(options);
   if (command === "confirm") return confirmGate(options, roots);
   if (command === "authorize") return authorizeRetry(options, roots);
   if (command === "upload-reference") return uploadReference(options, roots);
   if (command === "run-image") return runImage(options, roots);
-  if (command === "ingest") return ingest(options, roots);
+  if (command === "ingest") return ingest(options, roots, deps);
+  if (command === "preview") return previewOutput(options, roots);
   if (command === "build") throw new Error("build 已并入 verify-home，不能脱离真实 Home 锚点单独执行");
   if (command === "verify-home") return verifyHomeJob(options, roots, deps);
   if (command === "reopen-verification") return reopenVerification(options, roots);
