@@ -2,6 +2,7 @@ export const ANCHOR_SELECTORS = Object.freeze({
   sidebar: '[data-view-id="sidebar"]',
   topbar: ".workbuddy-topbar",
   "detail-panel": '[data-view-id="detail-panel"]',
+  "main-content": '[data-view-id="main-content"]',
   "home-composer": ".wb-home-composer",
   "home-stage": ".main-content--welcome",
   "quick-actions": ".quick-actions",
