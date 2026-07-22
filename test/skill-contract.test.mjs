@@ -18,12 +18,12 @@ test("主 Skill 保持简短索引，安全门禁由固定参考文档完整承�
   assert.match(contract, /固定槽位/);
   assert.match(contract, /module-slots\.mjs/);
   assert.match(contract, /不接受 AI 自由字符串|禁止模型自由定位/);
-  for (const phrase of ["$nonelinear-image", "gpt-image-2", "quality=low", "一次三输出背景请求", "不自动重试", "公开 HTTPS URL", "不承诺远端删除", "home-scene-v1", "copySets", "专注", "轻松", "活力"]) {
+  for (const phrase of ["$nonelinear-image", "gpt-image-2", "quality=low", "三次单图背景调用", "不自动重试", "公开 HTTPS URL", "不承诺远端删除", "home-scene-v1", "copySets", "专注", "轻松", "活力"]) {
     assert.match(contract, new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
   assert.match(contract, /不得改用 WorkBuddy 内置图片生成工具、`nl` CLI、`curl`/);
   assert.match(contract, /不得保存 API key、Authorization、大 base64/);
   assert.match(skill, /\$\{CODEBUDDY_SKILL_DIR\}/);
   assert.match(skill, /WorkBuddy 桌面端内部运行.*不依赖 Codex/);
-  for (const phrase of ["run-derived", "前台命令", "并行", "660秒", "每15秒", "wait/read", "保存当前主题（下次启动）", "outcome_unknown", "n=3", "默认方案1"]) assert.match(contract, new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  for (const phrase of ["run-backgrounds", "run-derived", "前台命令", "并行", "660秒", "每15秒", "wait/read", "保存当前主题（下次启动）", "outcome_unknown", "n=1", "默认方案1"]) assert.match(contract, new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });
