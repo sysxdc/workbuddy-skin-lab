@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { chooseActiveThemeId, runCli } from "../src/cli.mjs";
-import { applySkin, captureScreenshot, inspectModules, verifyHomeTheme, waitForHomeAnchors } from "../src/injector.mjs";
+import { applySkin, captureScreenshot, inspectModules, readSavedThemePreference, verifyHomeTheme, waitForHomeAnchors } from "../src/injector.mjs";
 
 test("probe-anchors CLI 转发已校验端口", async () => {
   const result = await runCli(["probe-anchors", "--port", "9333"], {
@@ -82,6 +82,7 @@ test("apply 未指定主题时恢复磁盘活动主题，成功后再持久化",
   let saved = null;
   const result = await runCli(["apply"], {
     readActiveThemeId: async () => "aurora-lab",
+    readSavedThemePreference: async () => null,
     writeActiveThemeId: async (id) => { saved = id; },
     applySkin: async ({ activeId }) => ({ applied: 1, requestedThemeId: activeId, actualThemeIds: [activeId] }),
   });
@@ -96,7 +97,48 @@ test("apply 未指定主题时恢复磁盘活动主题，成功后再持久化",
   assert.equal(wroteAfterFailure, false);
 });
 
-test("旧版本没有活动记录时选择最近校验有效的用户主题", () => {
+test("🎨 保存的主题优先于旧磁盘记录并在下次 apply 时固化", async () => {
+  let saved = null;
+  const result = await runCli(["apply"], {
+    readSavedThemePreference: async () => "aurora-lab",
+    readActiveThemeId: async () => "missing-old-theme",
+    writeActiveThemeId: async (id) => { saved = id; },
+    applySkin: async ({ activeId }) => ({ applied: 1, requestedThemeId: activeId, actualThemeIds: [activeId] }),
+  });
+  assert.equal(result.requestedThemeId, "aurora-lab");
+  assert.equal(result.preferenceSource, "panel");
+  assert.equal(saved, "aurora-lab");
+});
+
+test("读取 🎨 保存主题只接受固定 localStorage key 中的安全 ID", async () => {
+  let storedValue = "saved-theme";
+  class Session {
+    async open() {}
+    async evaluate(expression) {
+      assert.match(expression, /workbuddy-skin-lab:v1/);
+      assert.match(expression, /preferredActiveId/);
+      return storedValue;
+    }
+    close() {}
+  }
+  assert.equal(await readSavedThemePreference({
+    port: 9223,
+    deps: {
+      waitForRendererTargets: async () => [{ id: "one", webSocketDebuggerUrl: "ws://127.0.0.1:9223/devtools/page/1" }],
+      Session,
+    },
+  }), "saved-theme");
+  storedValue = "../not-a-theme";
+  assert.equal(await readSavedThemePreference({
+    port: 9223,
+    deps: {
+      waitForRendererTargets: async () => [{ id: "one", webSocketDebuggerUrl: "ws://127.0.0.1:9223/devtools/page/1" }],
+      Session,
+    },
+  }), null);
+});
+
+test("主题选择顺序为显式请求、🎨 保存、磁盘记录、最近用户主题", () => {
   const valid = [
     { manifest: { id: "aurora-lab" }, root: "D:\\project\\themes\\aurora-lab", modifiedAtMs: 9999 },
     { manifest: { id: "older-user" }, root: "C:\\state\\themes\\older-user", modifiedAtMs: 10 },
@@ -104,6 +146,8 @@ test("旧版本没有活动记录时选择最近校验有效的用户主题", ()
   ];
   assert.equal(chooseActiveThemeId(valid, { remembered: null, userThemesRoot: "C:\\state\\themes" }), "latest-user");
   assert.equal(chooseActiveThemeId(valid, { remembered: "older-user", userThemesRoot: "C:\\state\\themes" }), "older-user");
+  assert.equal(chooseActiveThemeId(valid, { preferred: "latest-user", remembered: "older-user", userThemesRoot: "C:\\state\\themes" }), "latest-user");
+  assert.equal(chooseActiveThemeId(valid, { requested: "aurora-lab", preferred: "latest-user", remembered: "older-user", userThemesRoot: "C:\\state\\themes" }), "aurora-lab");
 });
 
 test("waitForHomeAnchors 只接受本次真实存在且尺寸达标的 Home 锚点", async () => {

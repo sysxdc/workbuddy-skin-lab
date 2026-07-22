@@ -29,6 +29,10 @@ test("生成的注入脚本包含控制面板和可清理状态", () => {
   assert.doesNotMatch(script, /换宠物|createPet|wb-skin-lab-pet/);
   assert.match(script, /data-setting="theme"/);
   assert.match(script, /切换主题/);
+  assert.match(script, /data-action="save-theme"/);
+  assert.match(script, /保存当前主题/);
+  assert.match(script, /preferredActiveId/);
+  assert.match(script, /下次启动将自动恢复/);
   assert.match(script, /option\.textContent = theme\.name/);
   assert.match(script, /nativeTextSnapshots/);
   assert.match(script, /home-header-title/);
@@ -62,7 +66,10 @@ test("生成的注入脚本包含控制面板和可清理状态", () => {
   assert.match(script, /__WORKBUDDY_SKIN_LAB__/);
   assert.match(script, /moduleStorageKey/);
   assert.match(script, /:module:/);
-  assert.match(script, /createModuleNodes/);
+  assert.match(script, /ensureActiveModuleNodes/);
+  assert.match(script, /root\.dataset\.wbPageMode !== "home"/);
+  assert.match(script, /Home 组件：等待首次进入/);
+  assert.match(script, /compatibilityKey/);
   assert.match(script, /module\.minAnchor\.width/);
   assert.match(script, /wb-module-title/);
   assert.match(script, /text\.textContent = values\[key\]/);
@@ -77,6 +84,11 @@ test("生成的注入脚本包含控制面板和可清理状态", () => {
   assert.match(script, /data-wb-native-overlay-guard/);
   assert.match(script, /guardedOverlays/);
   assert.match(script, /wbObscured/);
+  assert.match(script, /pointerdown/);
+  assert.match(script, /pointermove/);
+  assert.match(script, /dockPosition/);
+  assert.match(script, /setPointerCapture/);
+  assert.match(script, /listen\(window, "resize"/);
   assert.doesNotThrow(() => new Function(script));
 });
 

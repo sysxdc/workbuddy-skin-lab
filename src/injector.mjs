@@ -137,6 +137,19 @@ export async function applySkin({ loadedThemes, activeId, port, deps = {} }) {
   return { applied: results.length, requestedThemeId: activeId, actualThemeIds: results.map((result) => result.activeId), targets: targets.map((target) => target.id), result: results };
 }
 
+export async function readSavedThemePreference({ port, deps = {} }) {
+  const expression = `(() => {
+    try {
+      const value = JSON.parse(localStorage.getItem("workbuddy-skin-lab:v1") || "{}");
+      return typeof value.preferredActiveId === "string" ? value.preferredActiveId : null;
+    } catch { return null; }
+  })()`;
+  const targets = await (deps.waitForRendererTargets ?? waitForRendererTargets)(port);
+  const values = await evaluateTargets(targets, expression, deps.Session);
+  const valid = [...new Set(values.filter((value) => typeof value === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)))];
+  return valid.length === 1 ? valid[0] : null;
+}
+
 export async function removeSkin({ port, deps = {} }) {
   const targets = await (deps.fetchRendererTargets ?? fetchRendererTargets)(port);
   return { removed: (await evaluateTargets(targets, buildCleanupScript(), deps.Session)).length };

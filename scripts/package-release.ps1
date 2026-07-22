@@ -29,6 +29,8 @@ if ($LASTEXITCODE -ne 0) { throw '主题校验失败。' }
 if ($LASTEXITCODE -ne 0) { throw 'JavaScript 语法检查失败。' }
 & $node.Source --check (Join-Path $repositoryRoot 'scripts\theme-generation-job.mjs')
 if ($LASTEXITCODE -ne 0) { throw '主题生成作业脚本语法检查失败。' }
+& $node.Source --check (Join-Path $repositoryRoot 'scripts\run-nonelinear-image.mjs')
+if ($LASTEXITCODE -ne 0) { throw 'NoneLinear 受控调用器语法检查失败。' }
 
 Write-Host '2/4 运行自动测试……'
 Push-Location $repositoryRoot
@@ -71,6 +73,11 @@ try {
   foreach ($relativePath in $directories) {
     Copy-Item -LiteralPath (Join-Path $repositoryRoot $relativePath) -Destination $stageRoot -Recurse
   }
+  # Python 测试会生成带本机绝对路径的字节码缓存，发布包不得包含它们。
+  Get-ChildItem -LiteralPath $stageRoot -Recurse -Directory -Filter '__pycache__' |
+    Remove-Item -Recurse -Force
+  Get-ChildItem -LiteralPath $stageRoot -Recurse -File -Filter '*.pyc' |
+    Remove-Item -Force
   $skillPackages = @(
     Join-Path $resolvedOutput "WorkBuddy-Skin-Lab-$version-Skill.zip"
     Join-Path $resolvedOutput 'NoneLinear-Image-0.1.0-Skill.zip'

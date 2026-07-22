@@ -5,12 +5,32 @@
     {
       "id": "prompt-only-background",
       "prompt": "生成一套暮色纸灯风格 WorkBuddy 主题，不使用参考图。",
-      "assertions": ["先完成真实锚点探测", "初始只授权一次背景调用", "使用 generate", "固定 gpt-image-2 low 2048x1152", "不得自动生成五张派生素材"]
+      "assertions": ["使用 generate", "初始只授权一次背景调用", "固定 gpt-image-2 low 2048x1152", "提示等待1至10分钟且不重复提交", "背景标准化后必须先展示再确认", "不得自动生成五张派生素材"]
     },
     {
       "id": "local-reference-consent",
       "prompt": "用本地 PNG 作为参考图生成主题。",
-      "assertions": ["显示固定上传说明", "明确确认前不上传", "只允许一张 1B-20MB PNG/JPEG/WebP", "只调用固定上传地址", "取得公开 HTTPS URL 后使用 edit"]
+      "assertions": ["未指定模式时默认 edit", "显示固定上传说明", "明确确认前不上传", "只允许一张 1B-20MB PNG/JPEG/WebP", "只调用固定上传地址", "取得公开 HTTPS URL 后使用 edit", "展示生成背景或公开地址后等待确认"]
+    },
+    {
+      "id": "direct-reference",
+      "prompt": "直接使用这张本地插画作为背景，不要重新生成背景。",
+      "assertions": ["选择 direct", "确认上传后仅把 URL 用作五张派生素材参考", "背景调用授权为零且拒绝重试授权", "原图不修改", "副本居中裁切为2048x1152 JPEG", "展示标准化本地路径后才能确认"]
+    },
+    {
+      "id": "task-page-accept",
+      "prompt": "我现在在任务页，背景和五张素材都确认了，请保存并应用。",
+      "assertions": ["不要求进入 Home", "校验六张素材和当前预览确认", "accept 后状态为 accepted-pending-home", "显式 apply 并永久保存活动主题", "以后自然进入 Home 时才探测锚点并按兼容性挂载模块"]
+    },
+    {
+      "id": "interrupted-resume",
+      "prompt": "刚才等待图片时中断了，继续。",
+      "assertions": ["正常生图必须保持前台等待同一进程而不是让用户追问", "先 resume 最近作业", "running 且所属进程已死亡时改为 outcome_unknown", "只沿 nextAction 继续", "不重新 init", "不自动增加调用授权"]
+    },
+    {
+      "id": "parallel-derived-assets",
+      "prompt": "背景我确认了，继续生成剩下五张素材；生成过程中不要让我一直问进度。",
+      "assertions": ["一次确认授权五条独立调用", "把五个提示词写入作业目录", "只启动一个前台 run-derived 命令", "五张图片并行生成", "至少等待660秒且同一命令全部结束后才返回", "每张结果带同一个 batchId 并持续写入作业", "失败不自动重试", "完成后自动继续标准化直到下一个用户门禁"]
     },
     {
       "id": "background-rejected",
@@ -28,10 +48,19 @@
       "assertions": ["只为 scene-code 请求一次授权", "保持 development 语义", "固定 1024x1024 请求和512x512输出", "失败后不自动重试"]
     },
     {
+      "id": "foreground-handle-wait",
+      "prompt": "图片还在生成，不要只告诉我等待通知，也不要让我再发消息才能继续。",
+      "assertions": ["保持原生图像命令在前台", "每15秒输出不含敏感信息的心跳", "取得任务或进程句柄后在同一轮分段 wait/read", "终态前不结束回复", "不重复提交", "不自动增加授权"]
+    },
+    {
+      "id": "save-panel-theme",
+      "prompt": "我在🎨里切到了喜欢的主题，保存它，下次打开自动用这个，同时保留其他主题可切换。",
+      "assertions": ["下拉切换只用于预览", "由保存当前主题按钮记录启动偏好", "下次 apply 通过固定 CDP 读取安全主题 ID", "确认主题存在后同步 settings.json", "显式 apply 优先", "不删除其他主题和独立覆盖"]
+    },
+    {
       "id": "cancel-preview",
       "prompt": "取消这套主题并恢复原生。",
       "assertions": ["先 pause", "确认无模块节点和监听器残留", "预览主题移动到可恢复目录", "清除本地临时 URL 记录", "不承诺远端删除"]
     }
   ]
 }
-

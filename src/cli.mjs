@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { DEFAULT_CDP_PORT, DEFAULT_THEME_ID, PRODUCT_NAME, RENDERER_URL_HINT, resolveStatePaths } from "./constants.mjs";
-import { applySkin, inspectModules, probeAnchors, removeSkin, skinStatus } from "./injector.mjs";
+import { applySkin, inspectModules, probeAnchors, readSavedThemePreference, removeSkin, skinStatus } from "./injector.mjs";
 import { loadTheme } from "./theme-schema.mjs";
 import { createTheme, listThemeDirectories, readActiveThemeId, writeActiveThemeId } from "./theme-store.mjs";
 
@@ -55,9 +55,10 @@ function insideOrEqual(root, candidate) {
   return rel === "" || (rel !== ".." && !rel.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) && !isAbsolute(rel));
 }
 
-export function chooseActiveThemeId(valid, { requested, remembered, userThemesRoot } = {}) {
+export function chooseActiveThemeId(valid, { requested, preferred, remembered, userThemesRoot } = {}) {
   const available = new Set(valid.map(({ manifest }) => manifest.id));
   if (requested) return requested;
+  if (preferred && available.has(preferred)) return preferred;
   if (remembered && available.has(remembered)) return remembered;
   const latestUserTheme = valid.filter(({ root }) => userThemesRoot && insideOrEqual(userThemesRoot, root))
     .sort((left, right) => (right.modifiedAtMs || 0) - (left.modifiedAtMs || 0))[0];
@@ -75,6 +76,7 @@ function dependencies(overrides = {}) {
     skinStatus,
     probeAnchors,
     inspectModules,
+    readSavedThemePreference,
     createTheme,
     readActiveThemeId: () => readActiveThemeId(state.settingsPath),
     writeActiveThemeId: (id) => writeActiveThemeId(state.settingsPath, id),
@@ -111,13 +113,16 @@ export async function runCli(argv, overrides = {}) {
     const result = await loadedThemes(deps.roots);
     if (result.invalid.length) process.stderr.write(`提示：已忽略 ${result.invalid.length} 个无效主题。\n`);
     for (const item of result.warnings) process.stderr.write(`提示：主题 ${item.id}：${item.warning}。\n`);
+    const port = portValue(options.port);
     const available = new Set(result.valid.map(({ manifest }) => manifest.id));
+    const preferred = options.theme ? null : await deps.readSavedThemePreference({ port }).catch(() => null);
     const remembered = options.theme ? null : await deps.readActiveThemeId();
-    const activeId = chooseActiveThemeId(result.valid, { requested: options.theme, remembered, userThemesRoot: deps.userThemesRoot });
+    const activeId = chooseActiveThemeId(result.valid, { requested: options.theme, preferred, remembered, userThemesRoot: deps.userThemesRoot });
     if (!available.has(activeId)) throw new Error(`找不到有效主题：${activeId}`);
-    const applied = await deps.applySkin({ loadedThemes: result.valid, activeId, port: portValue(options.port) });
+    const applied = await deps.applySkin({ loadedThemes: result.valid, activeId, port });
     await deps.writeActiveThemeId(activeId);
-    return { ...applied, persistedThemeId: activeId };
+    const preferenceSource = options.theme ? "explicit" : preferred === activeId ? "panel" : remembered === activeId ? "settings" : "latest";
+    return { ...applied, persistedThemeId: activeId, preferenceSource };
   }
   if (command === "pause" || command === "restore") return deps.removeSkin({ port: portValue(options.port) });
   if (command === "status") return deps.skinStatus({ port: portValue(options.port) });
