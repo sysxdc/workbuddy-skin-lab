@@ -57,7 +57,7 @@ node scripts/theme-generation-job.mjs discard --job <jobId>
 
 单项重做前用 `authorize --job <jobId> --call <role>` 增加一次明确授权。补齐背景时按缺少数量使用 `--count 1|2|3`，已成功候选会保留；完整背景重做使用 `--count 3` 并使旧候选和派生结果失效。切换已有背景不调用 API。
 
-从 `1.3.0-rc.1` 的 `incomplete_image_output（实际1张）` 恢复时不得重新 `init` 或删除作业。先 `resume --job <原jobId>`；由于旧版本没有保存那张返回图，取得用户对3次替代调用的明确授权后执行 `authorize --call background --count 3`，再运行 `run-backgrounds`。新版批次会保存每一张成功候选。
+从 `1.3.0` 之前的 `incomplete_image_output（实际1张）` 恢复时不得重新 `init` 或删除作业。先 `resume --job <原jobId>`；由于旧版本没有保存那张返回图，取得用户对3次替代调用的明确授权后执行 `authorize --call background --count 3`，再运行 `run-backgrounds`。新版批次会保存每一张成功候选。
 
 ## generation-spec.json
 
