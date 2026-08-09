@@ -3,6 +3,7 @@ import { ANCHOR_SELECTORS } from "./anchors.mjs";
 const STYLE_ID = "wb-skin-lab-style";
 const DOCK_ID = "wb-skin-lab-dock";
 const EFFECTS_ID = "wb-skin-lab-effects";
+const HEADER_ID = "wb-skin-lab-header-overlay";
 const STATE_KEY = "__WORKBUDDY_SKIN_LAB__";
 
 function runtimeMain(payload) {
@@ -156,9 +157,8 @@ function runtimeMain(payload) {
     if (effectsHost.parentElement !== effectsParent) effectsParent.prepend(effectsHost);
     const topbar = document.querySelector(anchorSelectors.topbar);
     if (appRoot && topbar) {
-      const appRect = appRoot.getBoundingClientRect();
       const topbarRect = topbar.getBoundingClientRect();
-      root.style.setProperty("--wb-topbar-offset", `${Math.max(12, Math.round(topbarRect.bottom - appRect.top + 12))}px`);
+      root.style.setProperty("--wb-header-top", `${Math.max(12, Math.round(topbarRect.bottom + 12))}px`);
     }
     if (pageNode && pageNode !== state.pageNode && state.pageObserver) {
       state.pageObserver.disconnect();
@@ -263,37 +263,62 @@ function runtimeMain(payload) {
   const effectsHost = document.createElement("div");
   effectsHost.id = ids.effects;
   effectsHost.setAttribute("aria-hidden", "true");
-  effectsHost.innerHTML = `
-    <div class="wb-weather-layer"></div>
-    <div class="wb-header-overlay"><img alt=""><span></span></div>`;
+  effectsHost.innerHTML = `<div class="wb-weather-layer"></div>`;
   (document.querySelector("#root") || document.body).prepend(effectsHost);
   state.cleanups.push(() => effectsHost.remove());
   const weatherLayer = effectsHost.querySelector(".wb-weather-layer");
-  const headerOverlay = effectsHost.querySelector(".wb-header-overlay");
+
+  const headerOverlay = document.createElement("div");
+  headerOverlay.id = ids.header;
+  headerOverlay.setAttribute("aria-hidden", "true");
+  headerOverlay.innerHTML = `<img alt=""><span></span>`;
+  document.body.appendChild(headerOverlay);
+  state.cleanups.push(() => headerOverlay.remove());
   const headerImage = headerOverlay.querySelector("img");
   const headerText = headerOverlay.querySelector("span");
 
   const unitValue = (seed) => ((seed * 9301 + 49297) % 233280) / 233280;
   const syncAmbientEffects = () => {
     const custom = overrides();
-    const weather = ["none", "rain", "thunder", "snow"].includes(custom.weather) ? custom.weather : "none";
+    const weather = ["none", "rain", "thunder", "snow", "hearts", "stars", "custom"].includes(custom.weather) ? custom.weather : "none";
     const intensity = ["low", "medium", "high"].includes(custom.weatherIntensity) ? custom.weatherIntensity : "medium";
+    const speed = ["slow", "normal", "fast"].includes(custom.effectSpeed) ? custom.effectSpeed : "normal";
+    const defaultColors = { rain: "#B7DBFF", thunder: "#D9E6FF", snow: "#FFFFFF", hearts: "#FF6B9A", stars: "#FFD76A", custom: "#FFFFFF" };
+    const color = typeof custom.effectColor === "string" && /^#[0-9a-f]{6}$/i.test(custom.effectColor)
+      ? custom.effectColor.toUpperCase() : (defaultColors[weather] || "#FFFFFF");
+    const symbolText = typeof custom.particleSymbol === "string" ? custom.particleSymbol.trim() : "";
+    const customSymbol = [...symbolText].slice(0, 2).join("") || "✦";
     effectsHost.dataset.weather = weather;
     effectsHost.dataset.weatherIntensity = intensity;
-    effectsHost.dataset.headerAlign = ["left", "center", "right"].includes(custom.headerAlign) ? custom.headerAlign : "center";
+    effectsHost.dataset.effectSpeed = speed;
+    effectsHost.style.setProperty("--wb-particle-color", color);
+    headerOverlay.dataset.headerAlign = ["left", "center", "right"].includes(custom.headerAlign) ? custom.headerAlign : "center";
+    headerOverlay.dataset.headerSize = ["small", "medium", "large"].includes(custom.headerSize) ? custom.headerSize : "medium";
     weatherLayer.replaceChildren();
-    const counts = weather === "snow"
-      ? { low: 24, medium: 42, high: 64 }
-      : { low: 32, medium: 56, high: 84 };
+    const counts = weather === "rain" || weather === "thunder"
+      ? { low: 32, medium: 56, high: 84 }
+      : { low: 18, medium: 32, high: 50 };
     const count = weather === "none" ? 0 : counts[intensity];
+    const speedScale = { slow: 1.35, normal: 1, fast: 0.72 }[speed];
+    const symbols = {
+      snow: ["❄", "❅", "❆"],
+      hearts: ["♥", "❤", "♡"],
+      stars: ["✦", "★", "✧", "⋆"],
+      custom: [customSymbol],
+    };
     for (let index = 0; index < count; index += 1) {
       const particle = document.createElement("i");
+      particle.textContent = symbols[weather]?.[index % symbols[weather].length] || "";
       particle.style.setProperty("--wb-particle-x", `${Math.round(unitValue(index + 11) * 10000) / 100}%`);
       particle.style.setProperty("--wb-particle-delay", `${Math.round(unitValue(index + 37) * -900) / 100}s`);
-      const duration = weather === "snow" ? 6 + unitValue(index + 71) * 8 : 0.65 + unitValue(index + 71) * 0.8;
+      const durationBase = weather === "rain" || weather === "thunder"
+        ? 0.65 + unitValue(index + 71) * 0.8
+        : weather === "snow" ? 8 + unitValue(index + 71) * 8 : 6 + unitValue(index + 71) * 7;
+      const duration = durationBase * speedScale;
       particle.style.setProperty("--wb-particle-duration", `${Math.round(duration * 100) / 100}s`);
       particle.style.setProperty("--wb-particle-scale", `${Math.round((0.55 + unitValue(index + 101) * 0.9) * 100) / 100}`);
       particle.style.setProperty("--wb-particle-drift", `${Math.round((unitValue(index + 131) - 0.5) * 180)}px`);
+      particle.style.setProperty("--wb-particle-opacity", `${Math.round((0.42 + unitValue(index + 151) * 0.5) * 100) / 100}`);
       weatherLayer.appendChild(particle);
     }
     const text = typeof custom.headerText === "string" ? custom.headerText.trim().slice(0, 60) : "";
@@ -302,7 +327,7 @@ function runtimeMain(payload) {
     headerText.hidden = !text;
     if (image) headerImage.src = image; else headerImage.removeAttribute("src");
     headerImage.hidden = !image;
-    effectsHost.dataset.headerVisible = String(Boolean(text || image));
+    headerOverlay.dataset.headerVisible = String(Boolean(text || image));
     const weatherSelect = document.querySelector(`#${ids.dock} [data-setting="weather"]`);
     if (weatherSelect) weatherSelect.value = weather;
     const intensitySelect = document.querySelector(`#${ids.dock} [data-setting="weather-intensity"]`);
@@ -313,7 +338,24 @@ function runtimeMain(payload) {
     const headerTextInput = document.querySelector(`#${ids.dock} [data-setting="header-text"]`);
     if (headerTextInput) headerTextInput.value = text;
     const headerAlignSelect = document.querySelector(`#${ids.dock} [data-setting="header-align"]`);
-    if (headerAlignSelect) headerAlignSelect.value = effectsHost.dataset.headerAlign;
+    if (headerAlignSelect) headerAlignSelect.value = headerOverlay.dataset.headerAlign;
+    const headerSizeSelect = document.querySelector(`#${ids.dock} [data-setting="header-size"]`);
+    if (headerSizeSelect) headerSizeSelect.value = headerOverlay.dataset.headerSize;
+    const speedSelect = document.querySelector(`#${ids.dock} [data-setting="effect-speed"]`);
+    if (speedSelect) {
+      speedSelect.value = speed;
+      speedSelect.disabled = weather === "none";
+    }
+    const colorInput = document.querySelector(`#${ids.dock} [data-setting="effect-color"]`);
+    if (colorInput) {
+      colorInput.value = color;
+      colorInput.disabled = weather === "none";
+    }
+    const symbolInput = document.querySelector(`#${ids.dock} [data-setting="particle-symbol"]`);
+    if (symbolInput) {
+      symbolInput.value = customSymbol;
+      symbolInput.disabled = weather !== "custom";
+    }
     const headerStatus = document.querySelector(`#${ids.dock} [data-header-image-status]`);
     if (headerStatus) headerStatus.textContent = image ? "已设置顶部图案" : "未设置顶部图案";
   };
@@ -509,13 +551,17 @@ function runtimeMain(payload) {
         <label>回答阅读层<select data-setting="readability"><option value="on">显示（更清晰）</option><option value="off">关闭（背景通透）</option></select></label>
       </div></details>
       <details><summary>环境特效与顶部图文</summary><div class="wb-panel-group">
-        <label>天气特效<select data-setting="weather"><option value="none">关闭</option><option value="rain">下雨</option><option value="thunder">雷雨</option><option value="snow">下雪</option></select></label>
-        <label>天气强度<select data-setting="weather-intensity"><option value="low">轻</option><option value="medium">中</option><option value="high">强</option></select></label>
+        <label>粒子特效<select data-setting="weather"><option value="none">关闭</option><option value="rain">下雨</option><option value="thunder">雷雨</option><option value="snow">下雪</option><option value="hearts">冒爱心</option><option value="stars">下星星</option><option value="custom">自定义符号</option></select></label>
+        <label>粒子强度<select data-setting="weather-intensity"><option value="low">轻</option><option value="medium">中</option><option value="high">强</option></select></label>
+        <label>粒子速度<select data-setting="effect-speed"><option value="slow">慢</option><option value="normal">正常</option><option value="fast">快</option></select></label>
+        <label>粒子颜色<input data-setting="effect-color" type="color" value="#FFFFFF"></label>
+        <label>自定义符号<input data-setting="particle-symbol" maxlength="4" placeholder="例如：🌸"></label>
         <label>顶部文字<input data-setting="header-text" maxlength="60" placeholder="留空则不显示"></label>
         <label>顶部位置<select data-setting="header-align"><option value="left">左侧</option><option value="center">居中</option><option value="right">右侧</option></select></label>
+        <label>顶部大小<select data-setting="header-size"><option value="small">小</option><option value="medium">中</option><option value="large">大</option></select></label>
         <span data-header-image-status>未设置顶部图案</span>
         <div class="wb-row"><button data-action="header-image">选择顶部图案</button><button data-action="header-image-clear">清除图案</button></div>
-        <small>特效和图文位于原生界面下方，不接收点击；系统启用“减少动态效果”时会自动停止天气动画。</small>
+        <small>粒子位于背景层，顶部图文显示在原生顶部栏下方；两者均不接收点击。系统启用“减少动态效果”时会自动停止天气动画。</small>
       </div></details>
       <details><summary>恢复与重置</summary><div class="wb-panel-group"><button data-action="reset">重置本主题</button><button data-action="native">恢复原生界面</button></div></details>
     </section>`;
@@ -575,11 +621,14 @@ function runtimeMain(payload) {
   });
   const placeDock = (position, persist = false) => {
     const next = clampDockPosition(position);
+    const opensUp = next.y > window.innerHeight / 2;
     dock.style.left = `${Math.round(next.x)}px`;
     dock.style.top = `${Math.round(next.y)}px`;
     dock.style.removeProperty("right");
     dock.dataset.panelSide = next.x > window.innerWidth / 2 ? "left" : "right";
-    dock.dataset.panelVertical = next.y > window.innerHeight / 2 ? "up" : "down";
+    dock.dataset.panelVertical = opensUp ? "up" : "down";
+    const availableHeight = opensUp ? next.y - 62 : window.innerHeight - next.y - 62;
+    dock.style.setProperty("--wb-panel-max-height", `${Math.max(180, Math.floor(availableHeight))}px`);
     if (persist) {
       const current = safeStorage.read();
       current.dockPosition = next;
@@ -664,12 +713,28 @@ function runtimeMain(payload) {
     savePatch({ weatherIntensity: event.target.value });
     syncAmbientEffects();
   });
+  listen(dock.querySelector('[data-setting="effect-speed"]'), "change", (event) => {
+    savePatch({ effectSpeed: event.target.value });
+    syncAmbientEffects();
+  });
+  listen(dock.querySelector('[data-setting="effect-color"]'), "change", (event) => {
+    savePatch({ effectColor: event.target.value.toUpperCase() });
+    syncAmbientEffects();
+  });
+  listen(dock.querySelector('[data-setting="particle-symbol"]'), "change", (event) => {
+    savePatch({ particleSymbol: [...event.target.value.trim()].slice(0, 2).join("") });
+    syncAmbientEffects();
+  });
   listen(dock.querySelector('[data-setting="header-text"]'), "change", (event) => {
     savePatch({ headerText: event.target.value.trim().slice(0, 60) });
     syncAmbientEffects();
   });
   listen(dock.querySelector('[data-setting="header-align"]'), "change", (event) => {
     savePatch({ headerAlign: event.target.value });
+    syncAmbientEffects();
+  });
+  listen(dock.querySelector('[data-setting="header-size"]'), "change", (event) => {
+    savePatch({ headerSize: event.target.value });
     syncAmbientEffects();
   });
   listen(dock.querySelector('[data-action="header-image"]'), "click", chooseHeaderImage);
@@ -706,7 +771,7 @@ function runtimeMain(payload) {
     state.guardedOverlays.clear();
     for (const [node, snapshot] of state.overlayHostStyles) restoreOverlayHost(node, snapshot);
     state.overlayHostStyles.clear();
-    for (const property of ["--wb-accent", "--wb-secondary", "--wb-surface", "--wb-text", "--wb-panel-opacity", "--wb-blur", "--wb-radius", "--wb-background", "--wb-focus-x", "--wb-focus-y", "--wb-sidebar-width", "--wb-topbar-offset"]) root.style.removeProperty(property);
+    for (const property of ["--wb-accent", "--wb-secondary", "--wb-surface", "--wb-text", "--wb-panel-opacity", "--wb-blur", "--wb-radius", "--wb-background", "--wb-focus-x", "--wb-focus-y", "--wb-sidebar-width", "--wb-header-top"]) root.style.removeProperty(property);
     restoreNativeAppearance(root, state.originalAppearance.html);
     restoreNativeAppearance(document.body, state.originalAppearance.body);
     if (window[ids.state] === state) delete window[ids.state];
@@ -731,7 +796,7 @@ export function buildRuntimeScript({ css, themes, activeId }) {
     copySets: [],
     modules: [],
   }));
-  const payload = { css, themes: backgroundThemes, activeId, ids: { style: STYLE_ID, dock: DOCK_ID, effects: EFFECTS_ID, state: STATE_KEY }, anchorSelectors: ANCHOR_SELECTORS };
+  const payload = { css, themes: backgroundThemes, activeId, ids: { style: STYLE_ID, dock: DOCK_ID, effects: EFFECTS_ID, header: HEADER_ID, state: STATE_KEY }, anchorSelectors: ANCHOR_SELECTORS };
   return `(${runtimeMain.toString()})(${JSON.stringify(payload)})`;
 }
 
@@ -740,7 +805,7 @@ export function buildCleanupScript() {
 }
 
 export function buildStatusScript() {
-  return `(() => { const state = window[${JSON.stringify(STATE_KEY)}]; const effects = document.getElementById(${JSON.stringify(EFFECTS_ID)}); return { installed: Boolean(state), requestedThemeId: state?.requestedId || null, themeId: document.documentElement.dataset.workbuddySkinLab || null, pageMode: document.documentElement.dataset.wbPageMode || null, readability: document.documentElement.dataset.wbReadability || null, backgroundOnly: true, ambientEffects: effects ? { weather: effects.dataset.weather || "none", headerVisible: effects.dataset.headerVisible === "true" } : null, panel: Boolean(document.getElementById(${JSON.stringify(DOCK_ID)})), nativeOverlays: document.querySelectorAll("[data-wb-native-overlay-guard]").length }; })()`;
+  return `(() => { const state = window[${JSON.stringify(STATE_KEY)}]; const effects = document.getElementById(${JSON.stringify(EFFECTS_ID)}); const header = document.getElementById(${JSON.stringify(HEADER_ID)}); return { installed: Boolean(state), requestedThemeId: state?.requestedId || null, themeId: document.documentElement.dataset.workbuddySkinLab || null, pageMode: document.documentElement.dataset.wbPageMode || null, readability: document.documentElement.dataset.wbReadability || null, backgroundOnly: true, ambientEffects: effects ? { weather: effects.dataset.weather || "none", headerVisible: header?.dataset.headerVisible === "true" } : null, panel: Boolean(document.getElementById(${JSON.stringify(DOCK_ID)})), nativeOverlays: document.querySelectorAll("[data-wb-native-overlay-guard]").length }; })()`;
 }
 
 export function buildModuleInspectionScript() {
