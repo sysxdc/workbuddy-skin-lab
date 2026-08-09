@@ -2,6 +2,7 @@ import { ANCHOR_SELECTORS } from "./anchors.mjs";
 
 const STYLE_ID = "wb-skin-lab-style";
 const DOCK_ID = "wb-skin-lab-dock";
+const EFFECTS_ID = "wb-skin-lab-effects";
 const STATE_KEY = "__WORKBUDDY_SKIN_LAB__";
 
 function runtimeMain(payload) {
@@ -150,6 +151,9 @@ function runtimeMain(payload) {
   const syncPageMode = () => {
     const pageNode = document.querySelector(".main-content");
     root.dataset.wbPageMode = document.querySelector(".wb-home-page") || pageNode?.classList.contains("main-content--welcome") ? "home" : "task";
+    const appRoot = document.querySelector("#root");
+    const effectsParent = appRoot || document.body;
+    if (effectsHost.parentElement !== effectsParent) effectsParent.prepend(effectsHost);
     if (pageNode && pageNode !== state.pageNode && state.pageObserver) {
       state.pageObserver.disconnect();
       state.pageObserver.observe(pageNode, { attributes: true, attributeFilter: ["class"] });
@@ -250,6 +254,80 @@ function runtimeMain(payload) {
   state.cleanups.push(() => style.remove());
   style.textContent = css;
 
+  const effectsHost = document.createElement("div");
+  effectsHost.id = ids.effects;
+  effectsHost.setAttribute("aria-hidden", "true");
+  effectsHost.innerHTML = `<div class="wb-weather-layer"></div>`;
+  (document.querySelector("#root") || document.body).prepend(effectsHost);
+  state.cleanups.push(() => effectsHost.remove());
+  const weatherLayer = effectsHost.querySelector(".wb-weather-layer");
+
+  const unitValue = (seed) => ((seed * 9301 + 49297) % 233280) / 233280;
+  const syncAmbientEffects = () => {
+    const custom = overrides();
+    const weather = ["none", "rain", "thunder", "snow", "hearts", "stars", "custom"].includes(custom.weather) ? custom.weather : "none";
+    const intensity = ["low", "medium", "high"].includes(custom.weatherIntensity) ? custom.weatherIntensity : "medium";
+    const speed = ["slow", "normal", "fast"].includes(custom.effectSpeed) ? custom.effectSpeed : "normal";
+    const defaultColors = { rain: "#B7DBFF", thunder: "#D9E6FF", snow: "#FFFFFF", hearts: "#FF6B9A", stars: "#FFD76A", custom: "#FFFFFF" };
+    const color = typeof custom.effectColor === "string" && /^#[0-9a-f]{6}$/i.test(custom.effectColor)
+      ? custom.effectColor.toUpperCase() : (defaultColors[weather] || "#FFFFFF");
+    const symbolText = typeof custom.particleSymbol === "string" ? custom.particleSymbol.trim() : "";
+    const customSymbol = [...symbolText].slice(0, 2).join("") || "✦";
+    effectsHost.dataset.weather = weather;
+    effectsHost.dataset.weatherIntensity = intensity;
+    effectsHost.dataset.effectSpeed = speed;
+    effectsHost.style.setProperty("--wb-particle-color", color);
+    weatherLayer.replaceChildren();
+    const counts = weather === "rain" || weather === "thunder"
+      ? { low: 32, medium: 56, high: 84 }
+      : { low: 18, medium: 32, high: 50 };
+    const count = weather === "none" ? 0 : counts[intensity];
+    const speedScale = { slow: 1.35, normal: 1, fast: 0.72 }[speed];
+    const symbols = {
+      snow: ["❄", "❅", "❆"],
+      hearts: ["♥", "❤", "♡"],
+      stars: ["✦", "★", "✧", "⋆"],
+      custom: [customSymbol],
+    };
+    for (let index = 0; index < count; index += 1) {
+      const particle = document.createElement("i");
+      particle.textContent = symbols[weather]?.[index % symbols[weather].length] || "";
+      particle.style.setProperty("--wb-particle-x", `${Math.round(unitValue(index + 11) * 10000) / 100}%`);
+      particle.style.setProperty("--wb-particle-delay", `${Math.round(unitValue(index + 37) * -900) / 100}s`);
+      const durationBase = weather === "rain" || weather === "thunder"
+        ? 0.65 + unitValue(index + 71) * 0.8
+        : weather === "snow" ? 8 + unitValue(index + 71) * 8 : 6 + unitValue(index + 71) * 7;
+      const duration = durationBase * speedScale;
+      particle.style.setProperty("--wb-particle-duration", `${Math.round(duration * 100) / 100}s`);
+      particle.style.setProperty("--wb-particle-scale", `${Math.round((0.55 + unitValue(index + 101) * 0.9) * 100) / 100}`);
+      particle.style.setProperty("--wb-particle-drift", `${Math.round((unitValue(index + 131) - 0.5) * 180)}px`);
+      particle.style.setProperty("--wb-particle-opacity", `${Math.round((0.42 + unitValue(index + 151) * 0.5) * 100) / 100}`);
+      weatherLayer.appendChild(particle);
+    }
+    const weatherSelect = document.querySelector(`#${ids.dock} [data-setting="weather"]`);
+    if (weatherSelect) weatherSelect.value = weather;
+    const intensitySelect = document.querySelector(`#${ids.dock} [data-setting="weather-intensity"]`);
+    if (intensitySelect) {
+      intensitySelect.value = intensity;
+      intensitySelect.disabled = weather === "none";
+    }
+    const speedSelect = document.querySelector(`#${ids.dock} [data-setting="effect-speed"]`);
+    if (speedSelect) {
+      speedSelect.value = speed;
+      speedSelect.disabled = weather === "none";
+    }
+    const colorInput = document.querySelector(`#${ids.dock} [data-setting="effect-color"]`);
+    if (colorInput) {
+      colorInput.value = color;
+      colorInput.disabled = weather === "none";
+    }
+    const symbolInput = document.querySelector(`#${ids.dock} [data-setting="particle-symbol"]`);
+    if (symbolInput) {
+      symbolInput.value = customSymbol;
+      symbolInput.disabled = weather !== "custom";
+    }
+  };
+
   const applyTheme = (id) => {
     const theme = themeById(id);
     state.activeId = theme.id;
@@ -294,6 +372,7 @@ function runtimeMain(payload) {
     if (background && (!custom.colors || !custom.detectedAppearance)) {
       refreshStoredPalette(theme.id, background);
     }
+    syncAmbientEffects();
   };
 
   const mixRgb = (from, to, amount) => from.map((value, index) => value + (to[index] - value) * amount);
@@ -424,6 +503,14 @@ function runtimeMain(payload) {
         <label>任务页背景<select data-setting="task-mode"><option value="auto">自动（柔和）</option><option value="ambient">柔和保留</option><option value="banner">仅顶部展示</option><option value="off">任务页关闭</option></select></label>
         <label>回答阅读层<select data-setting="readability"><option value="on">显示（更清晰）</option><option value="off">关闭（背景通透）</option></select></label>
       </div></details>
+      <details><summary>环境粒子特效</summary><div class="wb-panel-group">
+        <label>粒子特效<select data-setting="weather"><option value="none">关闭</option><option value="rain">下雨</option><option value="thunder">雷雨</option><option value="snow">下雪</option><option value="hearts">冒爱心</option><option value="stars">下星星</option><option value="custom">自定义符号</option></select></label>
+        <label>粒子强度<select data-setting="weather-intensity"><option value="low">轻</option><option value="medium">中</option><option value="high">强</option></select></label>
+        <label>粒子速度<select data-setting="effect-speed"><option value="slow">慢</option><option value="normal">正常</option><option value="fast">快</option></select></label>
+        <label>粒子颜色<input data-setting="effect-color" type="color" value="#FFFFFF"></label>
+        <label>自定义符号<input data-setting="particle-symbol" maxlength="4" placeholder="例如：🌸"></label>
+        <small>粒子只显示在背景层，不接收点击，也不会替换 WorkBuddy 的原生内容。系统启用“减少动态效果”时会自动停止动画。</small>
+      </div></details>
       <details><summary>恢复与重置</summary><div class="wb-panel-group"><button data-action="reset">重置本主题</button><button data-action="native">恢复原生界面</button></div></details>
     </section>`;
   document.body.appendChild(dock);
@@ -482,11 +569,14 @@ function runtimeMain(payload) {
   });
   const placeDock = (position, persist = false) => {
     const next = clampDockPosition(position);
+    const opensUp = next.y > window.innerHeight / 2;
     dock.style.left = `${Math.round(next.x)}px`;
     dock.style.top = `${Math.round(next.y)}px`;
     dock.style.removeProperty("right");
     dock.dataset.panelSide = next.x > window.innerWidth / 2 ? "left" : "right";
-    dock.dataset.panelVertical = next.y > window.innerHeight / 2 ? "up" : "down";
+    dock.dataset.panelVertical = opensUp ? "up" : "down";
+    const availableHeight = opensUp ? next.y - 62 : window.innerHeight - next.y - 62;
+    dock.style.setProperty("--wb-panel-max-height", `${Math.max(180, Math.floor(availableHeight))}px`);
     if (persist) {
       const current = safeStorage.read();
       current.dockPosition = next;
@@ -563,6 +653,26 @@ function runtimeMain(payload) {
     savePatch({ readability: event.target.value !== "off" });
     applyTheme(state.activeId);
   });
+  listen(dock.querySelector('[data-setting="weather"]'), "change", (event) => {
+    savePatch({ weather: event.target.value });
+    syncAmbientEffects();
+  });
+  listen(dock.querySelector('[data-setting="weather-intensity"]'), "change", (event) => {
+    savePatch({ weatherIntensity: event.target.value });
+    syncAmbientEffects();
+  });
+  listen(dock.querySelector('[data-setting="effect-speed"]'), "change", (event) => {
+    savePatch({ effectSpeed: event.target.value });
+    syncAmbientEffects();
+  });
+  listen(dock.querySelector('[data-setting="effect-color"]'), "change", (event) => {
+    savePatch({ effectColor: event.target.value.toUpperCase() });
+    syncAmbientEffects();
+  });
+  listen(dock.querySelector('[data-setting="particle-symbol"]'), "change", (event) => {
+    savePatch({ particleSymbol: [...event.target.value.trim()].slice(0, 2).join("") });
+    syncAmbientEffects();
+  });
   listen(dock.querySelector('[data-action="background"]'), "click", () => chooseBackground(1920));
   listen(dock.querySelector('[data-action="reset"]'), "click", () => {
     const current = safeStorage.read();
@@ -617,7 +727,7 @@ export function buildRuntimeScript({ css, themes, activeId }) {
     copySets: [],
     modules: [],
   }));
-  const payload = { css, themes: backgroundThemes, activeId, ids: { style: STYLE_ID, dock: DOCK_ID, state: STATE_KEY }, anchorSelectors: ANCHOR_SELECTORS };
+  const payload = { css, themes: backgroundThemes, activeId, ids: { style: STYLE_ID, dock: DOCK_ID, effects: EFFECTS_ID, state: STATE_KEY }, anchorSelectors: ANCHOR_SELECTORS };
   return `(${runtimeMain.toString()})(${JSON.stringify(payload)})`;
 }
 
@@ -626,7 +736,7 @@ export function buildCleanupScript() {
 }
 
 export function buildStatusScript() {
-  return `(() => { const state = window[${JSON.stringify(STATE_KEY)}]; return { installed: Boolean(state), requestedThemeId: state?.requestedId || null, themeId: document.documentElement.dataset.workbuddySkinLab || null, pageMode: document.documentElement.dataset.wbPageMode || null, readability: document.documentElement.dataset.wbReadability || null, backgroundOnly: true, panel: Boolean(document.getElementById(${JSON.stringify(DOCK_ID)})), nativeOverlays: document.querySelectorAll("[data-wb-native-overlay-guard]").length }; })()`;
+  return `(() => { const state = window[${JSON.stringify(STATE_KEY)}]; const effects = document.getElementById(${JSON.stringify(EFFECTS_ID)}); return { installed: Boolean(state), requestedThemeId: state?.requestedId || null, themeId: document.documentElement.dataset.workbuddySkinLab || null, pageMode: document.documentElement.dataset.wbPageMode || null, readability: document.documentElement.dataset.wbReadability || null, backgroundOnly: true, ambientEffects: effects ? { weather: effects.dataset.weather || "none" } : null, panel: Boolean(document.getElementById(${JSON.stringify(DOCK_ID)})), nativeOverlays: document.querySelectorAll("[data-wb-native-overlay-guard]").length }; })()`;
 }
 
 export function buildModuleInspectionScript() {
