@@ -1,18 +1,4 @@
-function moduleCss(themes) {
-  const rules = [];
-  for (const theme of themes) {
-    for (const module of theme.modules || []) {
-      const { x, y, w, h } = module.box;
-      if (![x, y, w, h].every(Number.isFinite) || x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > 1 || y + h > 1) {
-        throw new Error(`模块 ${module.id} 的 box 未通过结构化校验`);
-      }
-      rules.push(`html[data-workbuddy-skin-lab="${theme.id}"] [data-wb-module="${module.id}"] { --wb-module-x:${x}; --wb-module-y:${y}; --wb-module-w:${w}; --wb-module-h:${h}; }`);
-    }
-  }
-  return rules.length ? `\n${rules.join("\n")}\n` : "";
-}
-
-export function buildSkinCss(themes = []) {
+export function buildSkinCss() {
   return `
 html[data-workbuddy-skin-lab] {
   --wb-accent: #7c5cfc;
@@ -311,33 +297,5 @@ html[data-workbuddy-skin-lab] [role="dialog"] { border-radius: var(--wb-radius) 
 #wb-skin-lab-panel [data-background-options] button[data-active="true"] { outline:2px solid var(--wb-accent); }
 #wb-skin-lab-panel [data-background-options] img { display:block; width:100%; aspect-ratio:16/9; border-radius:6px; object-fit:cover; }
 #wb-skin-lab-panel [data-background-options] span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-[data-wb-module] { position:relative; z-index:2; box-sizing:border-box; margin:0; padding:0; border:0; border-radius:0; color:var(--wb-protected-text); background-color:transparent; background-image:var(--wb-module-image); background-position:center; background-repeat:no-repeat; background-size:contain; box-shadow:none; font:13px/1.35 system-ui,sans-serif; pointer-events:none; overflow:hidden; transition:opacity .12s ease; }
-[data-wb-module][data-wb-visible="false"] { display:none !important; }
-[data-wb-module][data-wb-obscured="true"] { visibility:hidden !important; opacity:0 !important; pointer-events:none !important; }
-[data-wb-module-kind="decorate"] { z-index:2; }
-[data-wb-module-kind="icon-swap"] { z-index:3; }
-[data-wb-module-kind="floating"][data-wb-action="forward-click"] { pointer-events:auto; cursor:pointer; -webkit-app-region:no-drag !important; }
-[data-wb-module-slot="sidebar-note"] { display:flex; width:calc(100% - 16px); min-height:56px; margin:8px; flex:0 0 auto; align-items:center; padding:7px 10px 7px 44px; border:1px solid color-mix(in srgb,var(--wb-accent) 20%,transparent); border-radius:10px; background-color:color-mix(in srgb,var(--wb-surface) 58%,transparent); background-position:12px center; background-size:24px 24px; box-shadow:0 4px 14px rgb(23 33 58 / 7%); backdrop-filter:blur(4px); }
-[data-wb-module-slot="home-hero"] { display:flex; width:min(820px,calc(100% - 32px)); min-height:96px; margin:0 auto 14px; flex:0 0 auto; align-items:center; padding:14px clamp(100px,14vw,170px) 14px 20px; border:1px solid color-mix(in srgb,var(--wb-accent) 20%,transparent); border-radius:calc(var(--wb-radius) + 4px); background-color:color-mix(in srgb,var(--wb-surface) 58%,transparent); background-position:right 16px bottom; background-size:auto 88%; box-shadow:0 8px 24px rgb(23 33 58 / 10%); backdrop-filter:blur(4px); }
-[data-wb-module-slot="home-card"], [data-wb-module-slot="scene-icon"], [data-wb-module-slot="composer-float"] { position:absolute; }
-[data-wb-module-slot="home-card"] { display:flex; align-items:center; padding:0 20px 0 7px; border:1px solid color-mix(in srgb,var(--wb-accent) 16%,transparent); border-radius:inherit; background-color:color-mix(in srgb,var(--wb-surface) 92%,var(--wb-panel-base)); background-position:right 6px center; background-size:13px 13px; }
-[data-wb-module-slot="home-card"] .wb-module-subtitle { display:none; }
-[data-wb-module-slot="scene-icon"] { display:flex; align-items:center; justify-content:center; padding:0 6px 0 24px; border:1px solid color-mix(in srgb,var(--wb-accent) 14%,transparent); border-radius:inherit; color:var(--wb-protected-text); background-color:var(--wb-panel-base); background-position:8px center; background-size:12px 12px; box-shadow:0 2px 8px rgb(0 0 0 / .08); }
-.wb-scene-tabs__pill--active > [data-wb-module-slot="scene-icon"] { background-color:var(--wb-accent); }
-[data-wb-module][data-wb-module-slot="scene-icon"] .wb-module-title { color:inherit; font-size:13px; font-weight:650; line-height:1.2; }
-[data-wb-module-slot="composer-float"] { border:1px solid color-mix(in srgb,var(--wb-accent) 24%,transparent); border-radius:999px; background-color:color-mix(in srgb,var(--wb-surface) 72%,transparent); background-size:68%; box-shadow:0 6px 18px rgb(23 33 58 / 14%); backdrop-filter:blur(4px); overflow:visible; }
-[data-wb-module] .wb-module-copy { display:grid; min-width:0; gap:2px; text-align:left; }
-[data-wb-module] .wb-module-eyebrow { color:var(--wb-accent); font-size:clamp(9px,.8vw,12px); font-weight:750; letter-spacing:.12em; text-transform:uppercase; }
-[data-wb-module] .wb-module-title { color:var(--wb-protected-text); font-size:clamp(13px,1.5vw,24px); font-weight:760; line-height:1.18; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-[data-wb-module-slot="sidebar-note"] .wb-module-title { font-size:clamp(12px,1vw,16px); }
-[data-wb-module-slot="home-card"] .wb-module-title { font-size:12px; }
-[data-wb-module] .wb-module-subtitle { color:color-mix(in srgb,var(--wb-protected-text) 68%,transparent); font-size:clamp(10px,.9vw,14px); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-[data-wb-module] .wb-module-badge { position:absolute; right:18px; top:50%; translate:0 -50%; padding:7px 12px; border-radius:999px; color:var(--wb-protected-text); background:color-mix(in srgb,var(--wb-panel-base) 78%,transparent); font-weight:650; }
-#wb-skin-lab-panel [data-module-row] { display:grid; grid-template-columns:1fr auto auto; gap:6px; align-items:center; }
-#wb-skin-lab-panel [data-module-row] button { width:auto; min-width:52px; }
-#wb-skin-lab-panel [data-module-image-row] { display:grid; grid-template-columns:1fr auto auto; gap:6px; align-items:center; }
-#wb-skin-lab-panel [data-module-image-row] button { width:auto; min-width:52px; }
-#wb-skin-lab-panel [data-module-editor] { display:grid; gap:6px; padding:8px; border:1px solid color-mix(in srgb,var(--wb-accent) 18%,transparent); border-radius:10px; }
-#wb-skin-lab-panel [data-module-fields] { display:grid; grid-template-columns:1fr; gap:6px; }
-${moduleCss(themes)}`;
+`;
 }
