@@ -2,6 +2,7 @@ import { ANCHOR_SELECTORS } from "./anchors.mjs";
 
 const STYLE_ID = "wb-skin-lab-style";
 const DOCK_ID = "wb-skin-lab-dock";
+const EFFECTS_ID = "wb-skin-lab-effects";
 const STATE_KEY = "__WORKBUDDY_SKIN_LAB__";
 
 function runtimeMain(payload) {
@@ -150,6 +151,15 @@ function runtimeMain(payload) {
   const syncPageMode = () => {
     const pageNode = document.querySelector(".main-content");
     root.dataset.wbPageMode = document.querySelector(".wb-home-page") || pageNode?.classList.contains("main-content--welcome") ? "home" : "task";
+    const appRoot = document.querySelector("#root");
+    const effectsParent = appRoot || document.body;
+    if (effectsHost.parentElement !== effectsParent) effectsParent.prepend(effectsHost);
+    const topbar = document.querySelector(anchorSelectors.topbar);
+    if (appRoot && topbar) {
+      const appRect = appRoot.getBoundingClientRect();
+      const topbarRect = topbar.getBoundingClientRect();
+      root.style.setProperty("--wb-topbar-offset", `${Math.max(12, Math.round(topbarRect.bottom - appRect.top + 12))}px`);
+    }
     if (pageNode && pageNode !== state.pageNode && state.pageObserver) {
       state.pageObserver.disconnect();
       state.pageObserver.observe(pageNode, { attributes: true, attributeFilter: ["class"] });
@@ -250,6 +260,64 @@ function runtimeMain(payload) {
   state.cleanups.push(() => style.remove());
   style.textContent = css;
 
+  const effectsHost = document.createElement("div");
+  effectsHost.id = ids.effects;
+  effectsHost.setAttribute("aria-hidden", "true");
+  effectsHost.innerHTML = `
+    <div class="wb-weather-layer"></div>
+    <div class="wb-header-overlay"><img alt=""><span></span></div>`;
+  (document.querySelector("#root") || document.body).prepend(effectsHost);
+  state.cleanups.push(() => effectsHost.remove());
+  const weatherLayer = effectsHost.querySelector(".wb-weather-layer");
+  const headerOverlay = effectsHost.querySelector(".wb-header-overlay");
+  const headerImage = headerOverlay.querySelector("img");
+  const headerText = headerOverlay.querySelector("span");
+
+  const unitValue = (seed) => ((seed * 9301 + 49297) % 233280) / 233280;
+  const syncAmbientEffects = () => {
+    const custom = overrides();
+    const weather = ["none", "rain", "thunder", "snow"].includes(custom.weather) ? custom.weather : "none";
+    const intensity = ["low", "medium", "high"].includes(custom.weatherIntensity) ? custom.weatherIntensity : "medium";
+    effectsHost.dataset.weather = weather;
+    effectsHost.dataset.weatherIntensity = intensity;
+    effectsHost.dataset.headerAlign = ["left", "center", "right"].includes(custom.headerAlign) ? custom.headerAlign : "center";
+    weatherLayer.replaceChildren();
+    const counts = weather === "snow"
+      ? { low: 24, medium: 42, high: 64 }
+      : { low: 32, medium: 56, high: 84 };
+    const count = weather === "none" ? 0 : counts[intensity];
+    for (let index = 0; index < count; index += 1) {
+      const particle = document.createElement("i");
+      particle.style.setProperty("--wb-particle-x", `${Math.round(unitValue(index + 11) * 10000) / 100}%`);
+      particle.style.setProperty("--wb-particle-delay", `${Math.round(unitValue(index + 37) * -900) / 100}s`);
+      const duration = weather === "snow" ? 6 + unitValue(index + 71) * 8 : 0.65 + unitValue(index + 71) * 0.8;
+      particle.style.setProperty("--wb-particle-duration", `${Math.round(duration * 100) / 100}s`);
+      particle.style.setProperty("--wb-particle-scale", `${Math.round((0.55 + unitValue(index + 101) * 0.9) * 100) / 100}`);
+      particle.style.setProperty("--wb-particle-drift", `${Math.round((unitValue(index + 131) - 0.5) * 180)}px`);
+      weatherLayer.appendChild(particle);
+    }
+    const text = typeof custom.headerText === "string" ? custom.headerText.trim().slice(0, 60) : "";
+    const image = typeof custom.headerImage === "string" && custom.headerImage.startsWith("data:image/") ? custom.headerImage : "";
+    headerText.textContent = text;
+    headerText.hidden = !text;
+    if (image) headerImage.src = image; else headerImage.removeAttribute("src");
+    headerImage.hidden = !image;
+    effectsHost.dataset.headerVisible = String(Boolean(text || image));
+    const weatherSelect = document.querySelector(`#${ids.dock} [data-setting="weather"]`);
+    if (weatherSelect) weatherSelect.value = weather;
+    const intensitySelect = document.querySelector(`#${ids.dock} [data-setting="weather-intensity"]`);
+    if (intensitySelect) {
+      intensitySelect.value = intensity;
+      intensitySelect.disabled = weather === "none";
+    }
+    const headerTextInput = document.querySelector(`#${ids.dock} [data-setting="header-text"]`);
+    if (headerTextInput) headerTextInput.value = text;
+    const headerAlignSelect = document.querySelector(`#${ids.dock} [data-setting="header-align"]`);
+    if (headerAlignSelect) headerAlignSelect.value = effectsHost.dataset.headerAlign;
+    const headerStatus = document.querySelector(`#${ids.dock} [data-header-image-status]`);
+    if (headerStatus) headerStatus.textContent = image ? "已设置顶部图案" : "未设置顶部图案";
+  };
+
   const applyTheme = (id) => {
     const theme = themeById(id);
     state.activeId = theme.id;
@@ -294,6 +362,7 @@ function runtimeMain(payload) {
     if (background && (!custom.colors || !custom.detectedAppearance)) {
       refreshStoredPalette(theme.id, background);
     }
+    syncAmbientEffects();
   };
 
   const mixRgb = (from, to, amount) => from.map((value, index) => value + (to[index] - value) * amount);
@@ -405,6 +474,21 @@ function runtimeMain(payload) {
     input.click();
   };
 
+  const chooseHeaderImage = () => {
+    const input = document.createElement("input");
+    state.cleanups.push(() => input.remove());
+    input.type = "file";
+    input.accept = "image/png,image/jpeg,image/webp,image/gif,image/svg+xml";
+    listen(input, "change", async () => {
+      try {
+        const result = await imageFromFile(input.files?.[0], 512);
+        savePatch({ headerImage: result.dataUrl });
+        syncAmbientEffects();
+      } catch (error) { alert(`WorkBuddy Skin Lab：${error.message}`); }
+    }, { once: true });
+    input.click();
+  };
+
   const dock = document.createElement("div");
   dock.id = ids.dock;
   dock.innerHTML = `
@@ -423,6 +507,15 @@ function runtimeMain(payload) {
         <label>背景安全区<select data-setting="safe-area"><option value="auto">自动（左侧）</option><option value="left">左侧</option><option value="right">右侧</option><option value="center">中央</option><option value="none">不保护</option></select></label>
         <label>任务页背景<select data-setting="task-mode"><option value="auto">自动（柔和）</option><option value="ambient">柔和保留</option><option value="banner">仅顶部展示</option><option value="off">任务页关闭</option></select></label>
         <label>回答阅读层<select data-setting="readability"><option value="on">显示（更清晰）</option><option value="off">关闭（背景通透）</option></select></label>
+      </div></details>
+      <details><summary>环境特效与顶部图文</summary><div class="wb-panel-group">
+        <label>天气特效<select data-setting="weather"><option value="none">关闭</option><option value="rain">下雨</option><option value="thunder">雷雨</option><option value="snow">下雪</option></select></label>
+        <label>天气强度<select data-setting="weather-intensity"><option value="low">轻</option><option value="medium">中</option><option value="high">强</option></select></label>
+        <label>顶部文字<input data-setting="header-text" maxlength="60" placeholder="留空则不显示"></label>
+        <label>顶部位置<select data-setting="header-align"><option value="left">左侧</option><option value="center">居中</option><option value="right">右侧</option></select></label>
+        <span data-header-image-status>未设置顶部图案</span>
+        <div class="wb-row"><button data-action="header-image">选择顶部图案</button><button data-action="header-image-clear">清除图案</button></div>
+        <small>特效和图文位于原生界面下方，不接收点击；系统启用“减少动态效果”时会自动停止天气动画。</small>
       </div></details>
       <details><summary>恢复与重置</summary><div class="wb-panel-group"><button data-action="reset">重置本主题</button><button data-action="native">恢复原生界面</button></div></details>
     </section>`;
@@ -563,6 +656,27 @@ function runtimeMain(payload) {
     savePatch({ readability: event.target.value !== "off" });
     applyTheme(state.activeId);
   });
+  listen(dock.querySelector('[data-setting="weather"]'), "change", (event) => {
+    savePatch({ weather: event.target.value });
+    syncAmbientEffects();
+  });
+  listen(dock.querySelector('[data-setting="weather-intensity"]'), "change", (event) => {
+    savePatch({ weatherIntensity: event.target.value });
+    syncAmbientEffects();
+  });
+  listen(dock.querySelector('[data-setting="header-text"]'), "change", (event) => {
+    savePatch({ headerText: event.target.value.trim().slice(0, 60) });
+    syncAmbientEffects();
+  });
+  listen(dock.querySelector('[data-setting="header-align"]'), "change", (event) => {
+    savePatch({ headerAlign: event.target.value });
+    syncAmbientEffects();
+  });
+  listen(dock.querySelector('[data-action="header-image"]'), "click", chooseHeaderImage);
+  listen(dock.querySelector('[data-action="header-image-clear"]'), "click", () => {
+    savePatch({ headerImage: null });
+    syncAmbientEffects();
+  });
   listen(dock.querySelector('[data-action="background"]'), "click", () => chooseBackground(1920));
   listen(dock.querySelector('[data-action="reset"]'), "click", () => {
     const current = safeStorage.read();
@@ -592,7 +706,7 @@ function runtimeMain(payload) {
     state.guardedOverlays.clear();
     for (const [node, snapshot] of state.overlayHostStyles) restoreOverlayHost(node, snapshot);
     state.overlayHostStyles.clear();
-    for (const property of ["--wb-accent", "--wb-secondary", "--wb-surface", "--wb-text", "--wb-panel-opacity", "--wb-blur", "--wb-radius", "--wb-background", "--wb-focus-x", "--wb-focus-y", "--wb-sidebar-width"]) root.style.removeProperty(property);
+    for (const property of ["--wb-accent", "--wb-secondary", "--wb-surface", "--wb-text", "--wb-panel-opacity", "--wb-blur", "--wb-radius", "--wb-background", "--wb-focus-x", "--wb-focus-y", "--wb-sidebar-width", "--wb-topbar-offset"]) root.style.removeProperty(property);
     restoreNativeAppearance(root, state.originalAppearance.html);
     restoreNativeAppearance(document.body, state.originalAppearance.body);
     if (window[ids.state] === state) delete window[ids.state];
@@ -617,7 +731,7 @@ export function buildRuntimeScript({ css, themes, activeId }) {
     copySets: [],
     modules: [],
   }));
-  const payload = { css, themes: backgroundThemes, activeId, ids: { style: STYLE_ID, dock: DOCK_ID, state: STATE_KEY }, anchorSelectors: ANCHOR_SELECTORS };
+  const payload = { css, themes: backgroundThemes, activeId, ids: { style: STYLE_ID, dock: DOCK_ID, effects: EFFECTS_ID, state: STATE_KEY }, anchorSelectors: ANCHOR_SELECTORS };
   return `(${runtimeMain.toString()})(${JSON.stringify(payload)})`;
 }
 
@@ -626,7 +740,7 @@ export function buildCleanupScript() {
 }
 
 export function buildStatusScript() {
-  return `(() => { const state = window[${JSON.stringify(STATE_KEY)}]; return { installed: Boolean(state), requestedThemeId: state?.requestedId || null, themeId: document.documentElement.dataset.workbuddySkinLab || null, pageMode: document.documentElement.dataset.wbPageMode || null, readability: document.documentElement.dataset.wbReadability || null, backgroundOnly: true, panel: Boolean(document.getElementById(${JSON.stringify(DOCK_ID)})), nativeOverlays: document.querySelectorAll("[data-wb-native-overlay-guard]").length }; })()`;
+  return `(() => { const state = window[${JSON.stringify(STATE_KEY)}]; const effects = document.getElementById(${JSON.stringify(EFFECTS_ID)}); return { installed: Boolean(state), requestedThemeId: state?.requestedId || null, themeId: document.documentElement.dataset.workbuddySkinLab || null, pageMode: document.documentElement.dataset.wbPageMode || null, readability: document.documentElement.dataset.wbReadability || null, backgroundOnly: true, ambientEffects: effects ? { weather: effects.dataset.weather || "none", headerVisible: effects.dataset.headerVisible === "true" } : null, panel: Boolean(document.getElementById(${JSON.stringify(DOCK_ID)})), nativeOverlays: document.querySelectorAll("[data-wb-native-overlay-guard]").length }; })()`;
 }
 
 export function buildModuleInspectionScript() {
