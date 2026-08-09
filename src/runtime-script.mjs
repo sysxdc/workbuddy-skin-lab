@@ -3,7 +3,6 @@ import { ANCHOR_SELECTORS } from "./anchors.mjs";
 const STYLE_ID = "wb-skin-lab-style";
 const DOCK_ID = "wb-skin-lab-dock";
 const EFFECTS_ID = "wb-skin-lab-effects";
-const HEADER_ID = "wb-skin-lab-header-overlay";
 const STATE_KEY = "__WORKBUDDY_SKIN_LAB__";
 
 function runtimeMain(payload) {
@@ -155,11 +154,6 @@ function runtimeMain(payload) {
     const appRoot = document.querySelector("#root");
     const effectsParent = appRoot || document.body;
     if (effectsHost.parentElement !== effectsParent) effectsParent.prepend(effectsHost);
-    const topbar = document.querySelector(anchorSelectors.topbar);
-    if (appRoot && topbar) {
-      const topbarRect = topbar.getBoundingClientRect();
-      root.style.setProperty("--wb-header-top", `${Math.max(12, Math.round(topbarRect.bottom + 12))}px`);
-    }
     if (pageNode && pageNode !== state.pageNode && state.pageObserver) {
       state.pageObserver.disconnect();
       state.pageObserver.observe(pageNode, { attributes: true, attributeFilter: ["class"] });
@@ -268,15 +262,6 @@ function runtimeMain(payload) {
   state.cleanups.push(() => effectsHost.remove());
   const weatherLayer = effectsHost.querySelector(".wb-weather-layer");
 
-  const headerOverlay = document.createElement("div");
-  headerOverlay.id = ids.header;
-  headerOverlay.setAttribute("aria-hidden", "true");
-  headerOverlay.innerHTML = `<img alt=""><span></span>`;
-  document.body.appendChild(headerOverlay);
-  state.cleanups.push(() => headerOverlay.remove());
-  const headerImage = headerOverlay.querySelector("img");
-  const headerText = headerOverlay.querySelector("span");
-
   const unitValue = (seed) => ((seed * 9301 + 49297) % 233280) / 233280;
   const syncAmbientEffects = () => {
     const custom = overrides();
@@ -292,8 +277,6 @@ function runtimeMain(payload) {
     effectsHost.dataset.weatherIntensity = intensity;
     effectsHost.dataset.effectSpeed = speed;
     effectsHost.style.setProperty("--wb-particle-color", color);
-    headerOverlay.dataset.headerAlign = ["left", "center", "right"].includes(custom.headerAlign) ? custom.headerAlign : "center";
-    headerOverlay.dataset.headerSize = ["small", "medium", "large"].includes(custom.headerSize) ? custom.headerSize : "medium";
     weatherLayer.replaceChildren();
     const counts = weather === "rain" || weather === "thunder"
       ? { low: 32, medium: 56, high: 84 }
@@ -321,13 +304,6 @@ function runtimeMain(payload) {
       particle.style.setProperty("--wb-particle-opacity", `${Math.round((0.42 + unitValue(index + 151) * 0.5) * 100) / 100}`);
       weatherLayer.appendChild(particle);
     }
-    const text = typeof custom.headerText === "string" ? custom.headerText.trim().slice(0, 60) : "";
-    const image = typeof custom.headerImage === "string" && custom.headerImage.startsWith("data:image/") ? custom.headerImage : "";
-    headerText.textContent = text;
-    headerText.hidden = !text;
-    if (image) headerImage.src = image; else headerImage.removeAttribute("src");
-    headerImage.hidden = !image;
-    headerOverlay.dataset.headerVisible = String(Boolean(text || image));
     const weatherSelect = document.querySelector(`#${ids.dock} [data-setting="weather"]`);
     if (weatherSelect) weatherSelect.value = weather;
     const intensitySelect = document.querySelector(`#${ids.dock} [data-setting="weather-intensity"]`);
@@ -335,12 +311,6 @@ function runtimeMain(payload) {
       intensitySelect.value = intensity;
       intensitySelect.disabled = weather === "none";
     }
-    const headerTextInput = document.querySelector(`#${ids.dock} [data-setting="header-text"]`);
-    if (headerTextInput) headerTextInput.value = text;
-    const headerAlignSelect = document.querySelector(`#${ids.dock} [data-setting="header-align"]`);
-    if (headerAlignSelect) headerAlignSelect.value = headerOverlay.dataset.headerAlign;
-    const headerSizeSelect = document.querySelector(`#${ids.dock} [data-setting="header-size"]`);
-    if (headerSizeSelect) headerSizeSelect.value = headerOverlay.dataset.headerSize;
     const speedSelect = document.querySelector(`#${ids.dock} [data-setting="effect-speed"]`);
     if (speedSelect) {
       speedSelect.value = speed;
@@ -356,8 +326,6 @@ function runtimeMain(payload) {
       symbolInput.value = customSymbol;
       symbolInput.disabled = weather !== "custom";
     }
-    const headerStatus = document.querySelector(`#${ids.dock} [data-header-image-status]`);
-    if (headerStatus) headerStatus.textContent = image ? "已设置顶部图案" : "未设置顶部图案";
   };
 
   const applyTheme = (id) => {
@@ -516,21 +484,6 @@ function runtimeMain(payload) {
     input.click();
   };
 
-  const chooseHeaderImage = () => {
-    const input = document.createElement("input");
-    state.cleanups.push(() => input.remove());
-    input.type = "file";
-    input.accept = "image/png,image/jpeg,image/webp,image/gif,image/svg+xml";
-    listen(input, "change", async () => {
-      try {
-        const result = await imageFromFile(input.files?.[0], 512);
-        savePatch({ headerImage: result.dataUrl });
-        syncAmbientEffects();
-      } catch (error) { alert(`WorkBuddy Skin Lab：${error.message}`); }
-    }, { once: true });
-    input.click();
-  };
-
   const dock = document.createElement("div");
   dock.id = ids.dock;
   dock.innerHTML = `
@@ -550,18 +503,13 @@ function runtimeMain(payload) {
         <label>任务页背景<select data-setting="task-mode"><option value="auto">自动（柔和）</option><option value="ambient">柔和保留</option><option value="banner">仅顶部展示</option><option value="off">任务页关闭</option></select></label>
         <label>回答阅读层<select data-setting="readability"><option value="on">显示（更清晰）</option><option value="off">关闭（背景通透）</option></select></label>
       </div></details>
-      <details><summary>环境特效与顶部图文</summary><div class="wb-panel-group">
+      <details><summary>环境粒子特效</summary><div class="wb-panel-group">
         <label>粒子特效<select data-setting="weather"><option value="none">关闭</option><option value="rain">下雨</option><option value="thunder">雷雨</option><option value="snow">下雪</option><option value="hearts">冒爱心</option><option value="stars">下星星</option><option value="custom">自定义符号</option></select></label>
         <label>粒子强度<select data-setting="weather-intensity"><option value="low">轻</option><option value="medium">中</option><option value="high">强</option></select></label>
         <label>粒子速度<select data-setting="effect-speed"><option value="slow">慢</option><option value="normal">正常</option><option value="fast">快</option></select></label>
         <label>粒子颜色<input data-setting="effect-color" type="color" value="#FFFFFF"></label>
         <label>自定义符号<input data-setting="particle-symbol" maxlength="4" placeholder="例如：🌸"></label>
-        <label>顶部文字<input data-setting="header-text" maxlength="60" placeholder="留空则不显示"></label>
-        <label>顶部位置<select data-setting="header-align"><option value="left">左侧</option><option value="center">居中</option><option value="right">右侧</option></select></label>
-        <label>顶部大小<select data-setting="header-size"><option value="small">小</option><option value="medium">中</option><option value="large">大</option></select></label>
-        <span data-header-image-status>未设置顶部图案</span>
-        <div class="wb-row"><button data-action="header-image">选择顶部图案</button><button data-action="header-image-clear">清除图案</button></div>
-        <small>粒子位于背景层，顶部图文显示在原生顶部栏下方；两者均不接收点击。系统启用“减少动态效果”时会自动停止天气动画。</small>
+        <small>粒子只显示在背景层，不接收点击，也不会替换 WorkBuddy 的原生内容。系统启用“减少动态效果”时会自动停止动画。</small>
       </div></details>
       <details><summary>恢复与重置</summary><div class="wb-panel-group"><button data-action="reset">重置本主题</button><button data-action="native">恢复原生界面</button></div></details>
     </section>`;
@@ -725,23 +673,6 @@ function runtimeMain(payload) {
     savePatch({ particleSymbol: [...event.target.value.trim()].slice(0, 2).join("") });
     syncAmbientEffects();
   });
-  listen(dock.querySelector('[data-setting="header-text"]'), "change", (event) => {
-    savePatch({ headerText: event.target.value.trim().slice(0, 60) });
-    syncAmbientEffects();
-  });
-  listen(dock.querySelector('[data-setting="header-align"]'), "change", (event) => {
-    savePatch({ headerAlign: event.target.value });
-    syncAmbientEffects();
-  });
-  listen(dock.querySelector('[data-setting="header-size"]'), "change", (event) => {
-    savePatch({ headerSize: event.target.value });
-    syncAmbientEffects();
-  });
-  listen(dock.querySelector('[data-action="header-image"]'), "click", chooseHeaderImage);
-  listen(dock.querySelector('[data-action="header-image-clear"]'), "click", () => {
-    savePatch({ headerImage: null });
-    syncAmbientEffects();
-  });
   listen(dock.querySelector('[data-action="background"]'), "click", () => chooseBackground(1920));
   listen(dock.querySelector('[data-action="reset"]'), "click", () => {
     const current = safeStorage.read();
@@ -771,7 +702,7 @@ function runtimeMain(payload) {
     state.guardedOverlays.clear();
     for (const [node, snapshot] of state.overlayHostStyles) restoreOverlayHost(node, snapshot);
     state.overlayHostStyles.clear();
-    for (const property of ["--wb-accent", "--wb-secondary", "--wb-surface", "--wb-text", "--wb-panel-opacity", "--wb-blur", "--wb-radius", "--wb-background", "--wb-focus-x", "--wb-focus-y", "--wb-sidebar-width", "--wb-header-top"]) root.style.removeProperty(property);
+    for (const property of ["--wb-accent", "--wb-secondary", "--wb-surface", "--wb-text", "--wb-panel-opacity", "--wb-blur", "--wb-radius", "--wb-background", "--wb-focus-x", "--wb-focus-y", "--wb-sidebar-width"]) root.style.removeProperty(property);
     restoreNativeAppearance(root, state.originalAppearance.html);
     restoreNativeAppearance(document.body, state.originalAppearance.body);
     if (window[ids.state] === state) delete window[ids.state];
@@ -796,7 +727,7 @@ export function buildRuntimeScript({ css, themes, activeId }) {
     copySets: [],
     modules: [],
   }));
-  const payload = { css, themes: backgroundThemes, activeId, ids: { style: STYLE_ID, dock: DOCK_ID, effects: EFFECTS_ID, header: HEADER_ID, state: STATE_KEY }, anchorSelectors: ANCHOR_SELECTORS };
+  const payload = { css, themes: backgroundThemes, activeId, ids: { style: STYLE_ID, dock: DOCK_ID, effects: EFFECTS_ID, state: STATE_KEY }, anchorSelectors: ANCHOR_SELECTORS };
   return `(${runtimeMain.toString()})(${JSON.stringify(payload)})`;
 }
 
@@ -805,7 +736,7 @@ export function buildCleanupScript() {
 }
 
 export function buildStatusScript() {
-  return `(() => { const state = window[${JSON.stringify(STATE_KEY)}]; const effects = document.getElementById(${JSON.stringify(EFFECTS_ID)}); const header = document.getElementById(${JSON.stringify(HEADER_ID)}); return { installed: Boolean(state), requestedThemeId: state?.requestedId || null, themeId: document.documentElement.dataset.workbuddySkinLab || null, pageMode: document.documentElement.dataset.wbPageMode || null, readability: document.documentElement.dataset.wbReadability || null, backgroundOnly: true, ambientEffects: effects ? { weather: effects.dataset.weather || "none", headerVisible: header?.dataset.headerVisible === "true" } : null, panel: Boolean(document.getElementById(${JSON.stringify(DOCK_ID)})), nativeOverlays: document.querySelectorAll("[data-wb-native-overlay-guard]").length }; })()`;
+  return `(() => { const state = window[${JSON.stringify(STATE_KEY)}]; const effects = document.getElementById(${JSON.stringify(EFFECTS_ID)}); return { installed: Boolean(state), requestedThemeId: state?.requestedId || null, themeId: document.documentElement.dataset.workbuddySkinLab || null, pageMode: document.documentElement.dataset.wbPageMode || null, readability: document.documentElement.dataset.wbReadability || null, backgroundOnly: true, ambientEffects: effects ? { weather: effects.dataset.weather || "none" } : null, panel: Boolean(document.getElementById(${JSON.stringify(DOCK_ID)})), nativeOverlays: document.querySelectorAll("[data-wb-native-overlay-guard]").length }; })()`;
 }
 
 export function buildModuleInspectionScript() {
