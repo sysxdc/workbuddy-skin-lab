@@ -13,7 +13,6 @@ WorkBuddy 更新后，首页标题、选项、对话框、卡片和宠物等内�
 完整图文步骤请看：
 
 - [小白安装使用教程（Markdown）](docs/BEGINNER_INSTALL.md)
-- [小白安装使用教程（浏览器版）](docs/BEGINNER_INSTALL.html)
 
 ### 运行条件
 
