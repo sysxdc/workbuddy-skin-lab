@@ -13,7 +13,6 @@ html[data-workbuddy-skin-lab] {
   --wb-transition-width: clamp(140px, 14vw, 280px);
   --wb-focus-x: 50%;
   --wb-focus-y: 50%;
-  --wb-header-top: 98px;
   --wb-panel-base: #fff;
   --wb-protected-surface: var(--wb-surface);
   --wb-protected-card: color-mix(in srgb, var(--wb-surface) 88%, var(--wb-panel-base));
@@ -126,55 +125,6 @@ html[data-workbuddy-skin-lab] #root {
   mix-blend-mode: screen;
   animation: wb-thunder-flash 9s linear infinite;
 }
-#wb-skin-lab-header-overlay {
-  position: fixed;
-  z-index: 2147482000;
-  top: var(--wb-header-top);
-  left: calc((100vw + var(--wb-sidebar-width)) / 2);
-  display: none;
-  align-items: center;
-  gap: 10px;
-  max-width: min(42vw, 560px);
-  min-height: 34px;
-  padding: 6px 14px;
-  border: 1px solid color-mix(in srgb, var(--wb-accent) 26%, transparent);
-  border-radius: 999px;
-  color: var(--wb-protected-text);
-  background: color-mix(in srgb, var(--wb-surface) 58%, transparent);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
-  backdrop-filter: blur(3px) saturate(1.04);
-  transform: translateX(-50%);
-  pointer-events: none !important;
-  user-select: none;
-}
-#wb-skin-lab-header-overlay[data-header-visible="true"] { display: flex; }
-#wb-skin-lab-header-overlay[data-header-align="left"] {
-  left: calc(var(--wb-sidebar-width) + 24px);
-  transform: none;
-}
-#wb-skin-lab-header-overlay[data-header-align="right"] {
-  right: 24px;
-  left: auto;
-  transform: none;
-}
-#wb-skin-lab-header-overlay img {
-  width: 40px;
-  height: 40px;
-  flex: 0 0 auto;
-  object-fit: contain;
-}
-#wb-skin-lab-header-overlay span {
-  overflow: hidden;
-  font: 600 16px/1.35 system-ui,-apple-system,"Microsoft YaHei",sans-serif;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-#wb-skin-lab-header-overlay[data-header-size="small"] { min-height: 34px; padding: 6px 14px; }
-#wb-skin-lab-header-overlay[data-header-size="small"] img { width: 26px; height: 26px; }
-#wb-skin-lab-header-overlay[data-header-size="small"] span { font-size: 14px; }
-#wb-skin-lab-header-overlay[data-header-size="large"] { min-height: 62px; padding: 10px 20px; }
-#wb-skin-lab-header-overlay[data-header-size="large"] img { width: 56px; height: 56px; }
-#wb-skin-lab-header-overlay[data-header-size="large"] span { font-size: 18px; }
 @keyframes wb-rain-fall {
   from { transform: translate3d(0,-12vh,0) rotate(8deg) scale(var(--wb-particle-scale)); }
   to { transform: translate3d(-8vw,124vh,0) rotate(8deg) scale(var(--wb-particle-scale)); }
