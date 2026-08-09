@@ -1,8 +1,8 @@
-# WorkBuddy Skin Lab v1.3.1：小白安装使用教程
+# WorkBuddy Skin Lab v1.4.0：小白安装使用教程
 
 这是一份讲“下载、解压、检查、启动、换背景、粒子特效和恢复”的图文教程。照着做，不需要懂代码。
 
-> v1.3.1 使用“仅背景模式”：不替换 WorkBuddy 的文字、图标、卡片、宠物或其它组件，避免 WorkBuddy 更新后出现错位和内容丢失。
+> v1.4.0 只扩展背景和粒子层：不替换 WorkBuddy 的文字、图标、卡片、宠物或其它组件，避免 WorkBuddy 更新后出现错位和内容丢失。
 
 ## 一、先准备好
 
@@ -16,15 +16,13 @@
 
 ## 二、下载正确的 Windows 发布包
 
-打开 [v1.3.1 发布页](https://github.com/sysxdc/workbuddy-skin-lab/releases/tag/v1.3.1)，下载：
+打开 [v1.4.0 发布页](https://github.com/sysxdc/workbuddy-skin-lab/releases/tag/v1.4.0)，下载：
 
 ```text
-WorkBuddy-Skin-Lab-1.3.1-Windows.zip
+WorkBuddy-Skin-Lab-1.4.0-Windows.zip
 ```
 
 第一次安装只需要 `Windows.zip`。名称带 `Skill.zip` 的文件用于可选的 AI 生成背景功能，不是普通换背景的必需文件。
-
-如果想立即使用粒子功能，请打开[仓库主页](https://github.com/sysxdc/workbuddy-skin-lab)，确认分支为 `main`，点击 `Code → Download ZIP`。完整解压源码 ZIP 后，同样运行其中的 `环境检查.bat` 和 `开始使用.bat`。v1.3.1 Release 暂时没有粒子选项。
 
 ## 三、完整解压
 
@@ -76,12 +74,10 @@ WorkBuddy 安装在 `D:\WorkBuddy\WorkBuddy.exe` 时会自动识别。其它自�
 4. WorkBuddy 右上角出现 `🎨` 后，点击打开面板。
 5. 在“主题与背景”中切换候选，或点击“指定自己的图片”。
 6. 在“显示效果”中按需设置浅色/深色、背景安全区、任务页背景和回答阅读层。
-7. 如果使用 `main` 源码版，可在“环境粒子特效”中选择雨、雷雨、雪、爱心、星星或自定义符号，并调整强度、速度和颜色。
+7. 在“环境粒子特效”中选择雨、雷雨、雪、爱心、星星或自定义符号，并调整强度、速度和颜色。
 8. 确认效果后，点击“保存当前主题（下次启动）”。
 
 界面中的首页标题、选项、输入框、回答内容和顶部工具栏仍由 WorkBuddy 原生渲染，不会被主题替换。
-
-> v1.3.1 Windows Release 只包含背景功能，不显示粒子选项。粒子功能已经进入 GitHub `main` 源码，将随下一版 Windows 发布包提供。
 
 ## 六、选择合适的背景图
 
@@ -104,7 +100,7 @@ WorkBuddy 安装在 `D:\WorkBuddy\WorkBuddy.exe` 时会自动识别。其它自�
 
 这些选项只控制背景及其可读性保护，不替换 WorkBuddy 的业务组件。
 
-## 八、环境粒子特效（`main` 源码版）
+## 八、环境粒子特效
 
 - **粒子特效**：可选关闭、下雨、雷雨、下雪、冒爱心、下星星或自定义符号。
 - **粒子强度**：性能较弱的电脑建议选择“轻”。
@@ -142,7 +138,7 @@ WorkBuddy 安装在 `D:\WorkBuddy\WorkBuddy.exe` 时会自动识别。其它自�
 
 ### 旧主题中的宠物、文字或装饰不见了
 
-这是 v1.3.1 的预期行为。旧功能依赖 WorkBuddy 内部页面结构，更新后无法可靠对齐，已经移除。旧主题的背景仍可使用。
+这是 v1.4.0 的预期行为。旧功能依赖 WorkBuddy 内部页面结构，更新后无法可靠对齐，已经移除。旧主题的背景仍可使用。
 
 ### 为什么没有顶部图案或顶部文字
 
