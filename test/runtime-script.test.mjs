@@ -28,7 +28,7 @@ const theme = {
   ],
 };
 
-test("生成的注入脚本包含控制面板和可清理状态", () => {
+test("生成的注入脚本只保留背景控制和可清理状态", () => {
   const script = buildRuntimeScript({ css: buildSkinCss(), themes: [theme], activeId: theme.id });
   assert.match(script, /workbuddy-skin-lab:v1/);
   assert.match(script, /requestedId: activeId, activeId/);
@@ -37,26 +37,19 @@ test("生成的注入脚本包含控制面板和可清理状态", () => {
   assert.doesNotMatch(script, /换宠物|createPet|wb-skin-lab-pet/);
   assert.match(script, /data-setting="theme"/);
   assert.match(script, /切换主题/);
-  for (const group of ["主题与背景", "文案设置", "显示效果", "模块装饰", "恢复与重置"]) assert.match(script, new RegExp(group));
-  assert.match(script, /data-action="next-copy"/);
-  assert.match(script, /当前文案：/);
+  for (const group of ["主题与背景", "显示效果", "恢复与重置"]) assert.match(script, new RegExp(group));
+  assert.doesNotMatch(script, /<summary>文案设置<\/summary>|<summary>模块装饰<\/summary>/);
+  assert.doesNotMatch(script, /data-action="next-copy"/);
   assert.match(script, /data-background-options/);
   assert.match(script, /backgroundId/);
-  assert.match(script, /textByCopySet/);
   assert.match(script, /data-action="save-theme"/);
   assert.match(script, /保存当前主题/);
   assert.match(script, /preferredActiveId/);
   assert.match(script, /下次启动将自动恢复/);
   assert.match(script, /option\.textContent = theme\.name/);
-  assert.match(script, /nativeTextSnapshots/);
-  assert.match(script, /home-header-title/);
-  assert.match(script, /home-header-subtitle/);
-  assert.match(script, /首页主标题/);
-  assert.match(script, /首页副标题/);
-  assert.match(script, /node\.textContent = target/);
-  assert.match(script, /node\.textContent = original/);
-  assert.match(script, /const currentTheme = themeById\(state\.activeId\)/);
-  assert.match(script, /saveModulePatch\(currentTheme\.id, currentModule\.id/);
+  assert.doesNotMatch(script, /nativeTextSnapshots/);
+  assert.doesNotMatch(script, /data-setting="home-title"|data-setting="home-subtitle"/);
+  assert.doesNotMatch(script, /今日陪伴|测试工作台|专注完成今天/);
   assert.doesNotMatch(script, /开关动效|data-action="motion"|wbMotion/);
   assert.match(script, /ResizeObserver/);
   assert.match(script, /--wb-sidebar-width/);
@@ -78,26 +71,19 @@ test("生成的注入脚本包含控制面板和可清理状态", () => {
   assert.match(script, /data-vscode-theme-kind/);
   assert.match(script, /restoreNativeAppearance/);
   assert.match(script, /__WORKBUDDY_SKIN_LAB__/);
-  assert.match(script, /moduleStorageKey/);
-  assert.match(script, /:module:/);
-  assert.match(script, /ensureActiveModuleNodes/);
-  assert.match(script, /root\.dataset\.wbPageMode !== "home"/);
-  assert.match(script, /Home 组件：等待首次进入/);
-  assert.match(script, /compatibilityKey/);
-  assert.match(script, /module\.minAnchor\.width/);
-  assert.match(script, /wb-module-title/);
-  assert.match(script, /text\.textContent = values\[key\]/);
+  assert.doesNotMatch(script, /moduleStorageKey|:module:|ensureActiveModuleNodes|compatibilityKey/);
+  assert.doesNotMatch(script, /module\.minAnchor\.width|wb-module-title|text\.textContent = values\[key\]/);
   assert.match(script, /state\.cleanups\.push/);
   assert.match(script, /for \(const cleanup of state\.cleanups\)/);
-  assert.match(script, /data-action=\"module-reset\"/);
-  assert.match(script, /forward-click/);
-  assert.match(script, /nativeClickable\(target\)/);
+  assert.doesNotMatch(script, /data-action=\"module-reset\"|data-action=\"module-image\"/);
+  assert.match(script, /syncNativeOverlays/);
+  assert.doesNotMatch(script, /forward-click|nativeClickable\(target\)/);
   assert.doesNotMatch(script, /ipcRenderer|navigator\.clipboard|XMLHttpRequest/);
   assert.doesNotMatch(script, /undefined\s*\)/);
   assert.match(script, /subtree:\s*true/);
   assert.match(script, /data-wb-native-overlay-guard/);
   assert.match(script, /guardedOverlays/);
-  assert.match(script, /wbObscured/);
+  assert.doesNotMatch(script, /wbObscured/);
   assert.match(script, /pointerdown/);
   assert.match(script, /pointermove/);
   assert.match(script, /dockPosition/);
@@ -130,8 +116,8 @@ test("清理和状态脚本只操作命名空间内对象", () => {
   assert.match(buildStatusScript(), /pageMode/);
   assert.match(buildStatusScript(), /readability/);
   assert.match(buildStatusScript(), /requestedThemeId/);
-  assert.match(buildStatusScript(), /mountedModules/);
-  assert.match(buildStatusScript(), /visibleModules/);
+  assert.match(buildStatusScript(), /backgroundOnly/);
+  assert.doesNotMatch(buildStatusScript(), /mountedModules|visibleModules|homeCompatibility/);
 });
 
 test("CSS 使用 WorkBuddy 稳定锚点", () => {
@@ -169,15 +155,12 @@ test("CSS 使用 WorkBuddy 稳定锚点", () => {
   assert.doesNotMatch(css, /wb-skin-native-pet-hidden|wb-skin-lab-pet/);
   assert.doesNotMatch(css, /data-wb-motion/);
   assert.match(css, /-webkit-app-region: no-drag/);
-  assert.match(css, /data-wb-module="side-note"/);
-  assert.match(css, /--wb-module-x:0/);
-  assert.match(css, /data-wb-module-slot="home-hero"/);
-  assert.match(css, /data-wb-module-slot="home-card"/);
-  assert.match(css, /data-wb-module-slot="sidebar-note"/);
-  assert.match(css, /data-wb-action="forward-click"/);
+  assert.doesNotMatch(css, /data-wb-module="side-note"/);
+  assert.doesNotMatch(css, /--wb-module-x:0/);
+  assert.doesNotMatch(css, /data-wb-module|wb-module-|data-wb-action="forward-click"/);
   assert.match(css, /data-wb-native-overlay-guard/);
   assert.match(css, /2147483000/);
-  assert.match(css, /data-wb-obscured/);
+  assert.doesNotMatch(css, /data-wb-obscured/);
 });
 
 test("模块自检脚本只读取固定锚点、模块样式和边界", () => {
