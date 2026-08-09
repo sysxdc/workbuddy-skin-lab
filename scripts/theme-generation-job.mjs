@@ -8,17 +8,15 @@ import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { resolveStatePaths } from "../src/constants.mjs";
-import { verifyHomeTheme, waitForHomeAnchors } from "../src/injector.mjs";
 import { slugify } from "../src/theme-store.mjs";
 import { assetPath, loadTheme, validateThemeManifest, verifiedAsset } from "../src/theme-schema.mjs";
 
 export const JOB_VERSION = 1;
-export const TEMPLATE_VERSION = "home-scene-v1";
+export const TEMPLATE_VERSION = "background-v1";
 export const IMAGE_MODEL = "gpt-image-2";
 export const IMAGE_QUALITY = "low";
 export const BACKGROUND_CANDIDATE_COUNT = 3;
-export const IMAGE_ROLES = Object.freeze(["background", "home-welcome", "scene-daily", "scene-code", "scene-design", "composer-companion"]);
-const DERIVED_ROLES = IMAGE_ROLES.slice(1);
+export const IMAGE_ROLES = Object.freeze(["background"]);
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const CONTENT_TYPES = new Map([["image/jpeg", ".jpg"], ["image/png", ".png"], ["image/webp", ".webp"]]);
 const MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024;
@@ -85,6 +83,7 @@ async function loadJob(roots, jobId) {
   const root = jobPath(roots.jobsRoot, jobId);
   const job = JSON.parse(await readFile(join(root, "job.json"), "utf8"));
   if (job.version !== JOB_VERSION || job.id !== jobId) throw new Error("job.json 无效");
+  if (job.template !== TEMPLATE_VERSION) throw new Error(`旧作业模板 ${job.template || "unknown"} 已停用；请新建 ${TEMPLATE_VERSION} 背景作业`);
   job.backgroundMode ??= job.reference ? "edit" : "generate";
   job.confirmations ??= { upload: false, background: false, final: false };
   job.confirmations.generation ??= Boolean(job.confirmations.background);
@@ -239,87 +238,35 @@ async function runProcess(executable, args, { maxOutput = 2 * 1024 * 1024, env =
 
 function roleSpec(role) {
   if (!IMAGE_ROLES.includes(role)) throw new Error("未知图片角色");
-  return { size: role === "background" ? "2048x1152" : "1024x1024", kind: role === "background" ? "background" : role === "home-welcome" ? "hero" : role === "composer-companion" ? "composer" : "icon" };
+  return { size: "2048x1152", kind: "background" };
 }
 
 export function validateGenerationSpec(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("generation spec 必须是对象");
   if (input.template !== TEMPLATE_VERSION) throw new Error(`template 必须是 ${TEMPLATE_VERSION}`);
   if (typeof input.name !== "string" || !input.name.trim() || input.name.length > 60) throw new Error("name 必须是 1 到 60 个字符");
-  const hero = input.copy?.hero;
-  const scenes = input.copy?.scenes;
-  const homeHeader = input.copy?.homeHeader ?? { title: input.name, subtitle: hero?.title };
-  for (const [key, limit] of Object.entries({ title: 24, subtitle: 36 })) {
-    if (typeof homeHeader?.[key] !== "string" || !homeHeader[key].trim() || homeHeader[key].trim().length > limit) throw new Error(`copy.homeHeader.${key} 无效`);
-  }
-  const requiredHero = { eyebrow: 32, title: 48, subtitle: 80 };
-  for (const [key, limit] of Object.entries(requiredHero)) if (typeof hero?.[key] !== "string" || !hero[key].trim() || hero[key].trim().length > limit) throw new Error(`copy.hero.${key} 无效`);
-  if (hero?.badge != null && (typeof hero.badge !== "string" || hero.badge.trim().length > 16)) throw new Error("copy.hero.badge 无效");
-  const sceneRules = { daily: "office", code: "development", design: "creative" };
-  for (const [key, meaning] of Object.entries(sceneRules)) {
-    if (scenes?.[key]?.meaning !== meaning || typeof scenes[key].title !== "string" || !scenes[key].title.trim() || scenes[key].title.trim().length > 16) throw new Error(`copy.scenes.${key} 必须保留 ${meaning} 语义且标题不超过 16 字符`);
-  }
-  if (typeof input.copy?.composerLabel !== "string" || !input.copy.composerLabel.trim() || input.copy.composerLabel.trim().length > 24) throw new Error("copy.composerLabel 无效");
   const colors = input.colors;
   for (const key of ["accent", "secondary", "surface", "text"]) if (typeof colors?.[key] !== "string" || !/^#[0-9a-f]{6}$/i.test(colors[key])) throw new Error(`colors.${key} 无效`);
   const focusX = input.art?.focusX;
   const focusY = input.art?.focusY;
   if (![focusX, focusY].every((value) => Number.isFinite(value) && value >= 0 && value <= 1)) throw new Error("art focus 必须在 0 到 1");
   if (!["auto", "left", "right", "center", "none"].includes(input.art?.safeArea)) throw new Error("art.safeArea 无效");
-  const normalized = {
+  return {
     template: TEMPLATE_VERSION,
     name: input.name.trim(), colors,
     art: { focusX, focusY, safeArea: input.art.safeArea },
-    copy: {
-      homeHeader: { title: homeHeader.title.trim(), subtitle: homeHeader.subtitle.trim() },
-      hero: Object.fromEntries(Object.entries(hero).filter(([, value]) => typeof value === "string" && value.trim()).map(([key, value]) => [key, value.trim()])),
-      scenes: Object.fromEntries(Object.entries(sceneRules).map(([key, meaning]) => [key, { meaning, title: scenes[key].title.trim() }])),
-      composerLabel: input.copy.composerLabel.trim(),
-    },
   };
-  const requestedSets = input.copySets;
-  normalized.copySets = requestedSets == null
-    ? [
-      { id: "focus", label: "专注", copy: normalized.copy },
-      { id: "relaxed", label: "轻松", copy: normalized.copy },
-      { id: "energy", label: "活力", copy: normalized.copy },
-    ]
-    : requestedSets.map((set, index) => {
-      const expected = [["focus", "专注"], ["relaxed", "轻松"], ["energy", "活力"]][index];
-      if (!expected || set?.id !== expected[0] || set?.label !== expected[1]) throw new Error("copySets 必须依次为 focus/专注、relaxed/轻松、energy/活力");
-      const item = validateGenerationSpec({ ...input, copy: set.copy, copySets: undefined });
-      return { id: expected[0], label: expected[1], copy: item.copy };
-    });
-  if (normalized.copySets.length !== 3) throw new Error("copySets 必须正好包含专注、轻松、活力三套文案");
-  return normalized;
 }
 
 export function fixedManifest(spec, id, backgroundCount = 3) {
-  const module = (moduleId, slot, order, anchor, kind, asset, box, text) => ({ id: moduleId, slot, order, anchor, kind, asset, box, text });
   const manifest = {
     schemaVersion: 1, id, name: spec.name, background: "background-1.jpg",
     backgrounds: Array.from({ length: backgroundCount }, (_, index) => ({ id: `background-${index + 1}`, label: backgroundCount === 1 ? "默认背景" : `方案${index + 1}`, asset: `background-${index + 1}.jpg` })),
-    colors: spec.colors, homeHeader: spec.copySets[0].copy.homeHeader,
+    colors: spec.colors,
     ui: { opacity: 0.82, blur: 20, radius: 16, appearance: "auto" },
     art: { focusX: spec.art.focusX, focusY: spec.art.focusY, safeArea: spec.art.safeArea, taskMode: "ambient" },
-    modules: [
-      module("home-welcome", "home-hero", 0, "scene-tabs", "decorate", "assets/home-welcome.png", { x: 0, y: 0, w: 1, h: 1 }, spec.copySets[0].copy.hero),
-      module("scene-daily", "scene-icon", 0, "scene-tabs", "icon-swap", "assets/scene-daily.png", { x: 0, y: 0, w: 1, h: 1 }, { title: spec.copySets[0].copy.scenes.daily.title }),
-      module("scene-code", "scene-icon", 1, "scene-tabs", "icon-swap", "assets/scene-code.png", { x: 0, y: 0, w: 1, h: 1 }, { title: spec.copySets[0].copy.scenes.code.title }),
-      module("scene-design", "scene-icon", 2, "scene-tabs", "icon-swap", "assets/scene-design.png", { x: 0, y: 0, w: 1, h: 1 }, { title: spec.copySets[0].copy.scenes.design.title }),
-      module("composer-companion", "composer-float", 0, "home-composer", "floating", "assets/composer-companion.png", { x: 0.86, y: 0.01, w: 0.1, h: 0.22 }, { label: spec.copySets[0].copy.composerLabel }),
-    ],
+    modules: [],
   };
-  manifest.copySets = spec.copySets.map((set) => ({
-    id: set.id, label: set.label, homeHeader: set.copy.homeHeader,
-    modules: {
-      "home-welcome": set.copy.hero,
-      "scene-daily": { title: set.copy.scenes.daily.title },
-      "scene-code": { title: set.copy.scenes.code.title },
-      "scene-design": { title: set.copy.scenes.design.title },
-      "composer-companion": { label: set.copy.composerLabel },
-    },
-  }));
   validateThemeManifest(manifest);
   return manifest;
 }
@@ -348,7 +295,7 @@ async function initialize(options, roots) {
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), reference, backgroundMode,
     generation: { model: IMAGE_MODEL, quality: IMAGE_QUALITY, responseFormat: "url", timeoutMs: IMAGE_TIMEOUT_MS, roles: Object.fromEntries(IMAGE_ROLES.map((role) => [role, roleSpec(role)])) },
     confirmations: { upload: false, generation: false, background: false, final: false }, confirmationTimes: { upload: null, generation: null, background: null, final: null },
-    callsAuthorized, calls: [], outputs: {}, generationSpec: null, theme: null, needsBuild: true, homeProof: null, verification: null,
+    callsAuthorized, calls: [], outputs: {}, generationSpec: null, theme: null, needsBuild: true,
   };
   await atomicJson(join(root, "job.json"), job);
   return { status: "completed", jobId: id, path: root, backgroundMode, next: reference?.kind === "local" ? "confirm-upload" : "confirm-generation" };
@@ -385,7 +332,7 @@ async function confirmGate(options, roots) {
   else if (gate === "generation") {
     if (job.confirmations.generation) throw new Error("本作业的完整调用量已经确认");
     job.confirmations.generation = true;
-    for (const role of IMAGE_ROLES) job.callsAuthorized[role] = role === "background" ? (job.backgroundMode === "direct" ? 0 : BACKGROUND_CANDIDATE_COUNT) : 1;
+    job.callsAuthorized.background = job.backgroundMode === "direct" ? 0 : BACKGROUND_CANDIDATE_COUNT;
     job.confirmations.background = true;
   }
   else if (gate === "background") {
@@ -393,12 +340,8 @@ async function confirmGate(options, roots) {
     if (!job.outputs.background?.normalized) throw new Error("确认背景前必须先准备并标准化背景");
     if (!job.outputs.background?.previewedAt) throw new Error("确认背景前必须先运行 preview 展示当前背景");
     job.confirmations.background = true;
-    for (const role of DERIVED_ROLES) {
-      const attempts = job.calls.filter((call) => call.role === role).length;
-      job.callsAuthorized[role] = attempts + 1;
-    }
   } else if (gate === "final") {
-    if (!job.confirmations.background || !IMAGE_ROLES.every((role) => job.outputs?.[role]?.normalized)) throw new Error("最终确认前必须完成全部素材并确认背景");
+    if (!job.confirmations.background || !job.outputs?.background?.normalized) throw new Error("最终确认前必须完成并确认背景");
     job.confirmations.final = true;
   } else throw new Error("gate 必须是 upload、generation、background 或 final");
   job.confirmationTimes ??= { upload: null, generation: null, background: null, final: null };
@@ -417,7 +360,6 @@ async function authorizeRetry(options, roots) {
   if (!job.confirmations.generation) throw new Error("尚未确认完整调用量，不能授权重试");
   const count = options.count == null ? 1 : Number(options.count);
   if (!Number.isInteger(count) || count < 1 || count > BACKGROUND_CANDIDATE_COUNT) throw new Error("count 必须是 1 到 3 的整数");
-  if (role !== "background" && count !== 1) throw new Error("模块素材每次只能授权 1 次调用");
   const existingBackgrounds = job.outputs.background?.candidates?.length ?? 0;
   const completeExistingSet = Boolean(job.outputs.background?.normalized) || existingBackgrounds >= BACKGROUND_CANDIDATE_COUNT;
   if (role === "background" && completeExistingSet && count !== BACKGROUND_CANDIDATE_COUNT) throw new Error("完整重做背景必须明确授权 3 次调用");
@@ -425,16 +367,10 @@ async function authorizeRetry(options, roots) {
   job.callsAuthorized[role] += count;
   job.confirmations.final = false;
   if (job.confirmationTimes) job.confirmationTimes.final = null;
-  job.verification = null;
-  job.homeProof = null;
   job.needsBuild = true;
   if (role === "background") {
     if (completeExistingSet) {
       job.outputs.background = null;
-      for (const derivedRole of DERIVED_ROLES) {
-        job.callsAuthorized[derivedRole] = job.calls.filter((call) => call.role === derivedRole).length;
-        job.outputs[derivedRole] = null;
-      }
       job.status = "background-revision";
     } else {
       job.status = "background-incomplete";
@@ -628,64 +564,6 @@ async function runBackgrounds(options, roots, dependencies = {}) {
   return { status: candidates.length === BACKGROUND_CANDIDATE_COUNT ? "completed" : "failed", batchId, completed, failed, outcomeUnknown, candidateCount: candidates.length, urls: candidates.map((item) => item.url), defaultUrl: candidates[0]?.url || null, roles: results };
 }
 
-async function runDerived(options, roots, dependencies = {}) {
-  const { root, job } = await loadJob(roots, options.job);
-  if (!job.confirmations.generation) throw new Error("并行生成前必须一次确认完整调用量");
-  if (!options["prompt-dir"] || !options["skill-script"]) throw new Error("run-derived 需要 --prompt-dir 和 --skill-script");
-  const promptDir = resolve(options["prompt-dir"]);
-  if (!(await stat(promptDir).catch(() => null))?.isDirectory()) throw new Error("prompt-dir 不是有效目录");
-  const pending = [];
-  for (const role of DERIVED_ROLES) {
-    if (job.outputs?.[role]?.url || job.outputs?.[role]?.normalized) continue;
-    const attempts = job.calls.filter((call) => call.role === role).length;
-    if (attempts >= (job.callsAuthorized?.[role] ?? 0)) throw new Error(`${role} 没有新的计费调用授权`);
-    const prompt = (await readFile(join(promptDir, `${role}.txt`), "utf8")).trim();
-    if (!prompt) throw new Error(`${role} 图片提示词不能为空`);
-    pending.push({ role, prompt });
-  }
-  if (!pending.length) return { status: "completed", completed: 0, failed: 0, outcomeUnknown: 0, roles: [] };
-  const runner = await imageRunner(options);
-  const prepared = [];
-  for (const item of pending) prepared.push({ ...item, invocation: await imageInvocation(job, item.role, item.prompt, runner) });
-  const batchId = `batch-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
-  for (const item of prepared) {
-    item.call = { role: item.role, prompt: item.prompt, model: IMAGE_MODEL, quality: IMAGE_QUALITY, size: item.invocation.spec.size, responseFormat: "url", startedAt: new Date().toISOString(), status: "running", ownerPid: process.pid, batchId };
-    job.calls.push(item.call);
-  }
-  job.status = "derived-generating";
-  await saveJob(root, job);
-  let saveQueue = Promise.resolve();
-  const persist = () => {
-    saveQueue = saveQueue.then(() => saveJob(root, job));
-    return saveQueue;
-  };
-  const stopHeartbeat = dependencies.startHeartbeat
-    ? dependencies.startHeartbeat({ label: `${prepared.length} 张派生素材并行生成` })
-    : dependencies.executeImageProcess ? () => {} : startForegroundHeartbeat({ label: `${prepared.length} 张派生素材并行生成` });
-  let results;
-  try {
-    results = await Promise.all(prepared.map(async (item) => {
-      let execution;
-      let error = null;
-      try {
-        execution = await (dependencies.executeImageProcess
-          ? dependencies.executeImageProcess({ role: item.role, args: item.invocation.args, timeoutMs: IMAGE_PROCESS_TIMEOUT_MS })
-          : runProcess(runner.node, item.invocation.args, { maxOutput: 2 * 1024 * 1024, timeoutMs: IMAGE_PROCESS_TIMEOUT_MS }));
-      } catch (caught) { error = caught; }
-      const result = finishImageCall(job, item.call, execution, error);
-      await persist();
-      return result;
-    }));
-  } finally { stopHeartbeat(); }
-  await saveQueue;
-  const completed = results.filter((result) => result.status === "completed").length;
-  const outcomeUnknown = results.filter((result) => result.outcome === "unknown").length;
-  const failed = results.length - completed - outcomeUnknown;
-  job.status = completed === results.length ? "derived-generated" : "derived-incomplete";
-  await saveJob(root, job);
-  return { status: completed === results.length ? "completed" : "failed", batchId, completed, failed, outcomeUnknown, roles: results };
-}
-
 async function ingest(options, roots, dependencies = {}) {
   const { root, job } = await loadJob(roots, options.job);
   const role = options.role;
@@ -724,7 +602,6 @@ async function ingest(options, roots, dependencies = {}) {
     output.previewedAt = new Date().toISOString();
     job.outputs.background = output;
     job.needsBuild = true;
-    job.verification = null;
     job.confirmations.final = false;
     await saveJob(root, job);
     return { status: "completed", role, paths: [normalizedPath], width: parsed.width, height: parsed.height, sizes: [parsed.size] };
@@ -747,7 +624,6 @@ async function ingest(options, roots, dependencies = {}) {
     output.sourceMode ??= job.backgroundMode;
     job.outputs.background = output;
     job.needsBuild = true;
-    job.verification = null;
     await saveJob(root, job);
     return { status: "completed", role, paths: normalizedItems.map((item) => item.path), width: normalizedItems[0].parsed.width, height: normalizedItems[0].parsed.height, sizes: normalizedItems.map((item) => item.parsed.size), default: normalizedItems[0].path };
   }
@@ -761,10 +637,9 @@ async function ingest(options, roots, dependencies = {}) {
   output.sourceMode ??= "generated";
   job.outputs[role] = output;
   job.needsBuild = true;
-  job.verification = null;
   job.confirmations.final = false;
   if (job.confirmationTimes) job.confirmationTimes.final = null;
-  if (IMAGE_ROLES.every((candidate) => job.outputs[candidate]?.normalized)) job.status = "media-ready";
+  if (job.outputs.background?.normalized) job.status = "media-ready";
   await saveJob(root, job);
   return { status: "completed", role, path: normalizedPath, width: parsed.width, height: parsed.height, size: parsed.size };
 }
@@ -793,11 +668,11 @@ async function previewOutput(options, roots) {
   };
 }
 
-async function buildTheme(options, roots, homeProof = null) {
+async function buildTheme(options, roots) {
   const { root, job } = await loadJob(roots, options.job);
   if (!options.spec) throw new Error("构建主题需要 --spec");
   const spec = validateGenerationSpec(JSON.parse(await readFile(resolve(options.spec), "utf8")));
-  for (const role of IMAGE_ROLES) if (!job.outputs[role]?.normalized) throw new Error(`${role} 尚未标准化`);
+  if (!job.outputs.background?.normalized) throw new Error("background 尚未标准化");
   const suffix = createHash("sha256").update(job.id).digest("hex").slice(0, 8);
   const id = job.theme?.id ?? `${slugify(spec.name)}-${suffix}`;
   const backgroundCount = job.outputs.background.candidates?.length || 1;
@@ -810,7 +685,6 @@ async function buildTheme(options, roots, homeProof = null) {
       const candidate = job.outputs.background.candidates?.[index] || { normalized: job.outputs.background.normalized };
       await copyFile(jobFile(root, candidate.normalized, `background-${index + 1}.normalized`), join(temporary, `background-${index + 1}.jpg`));
     }
-    for (const role of DERIVED_ROLES) await copyFile(jobFile(root, job.outputs[role].normalized, `${role}.normalized`), join(temporary, "assets", `${role}.png`));
     await writeFile(join(temporary, "theme.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
     for (const item of [manifest.background, ...manifest.modules.map((module) => module.asset)]) {
       assetPath(item, { required: true, label: item });
@@ -832,25 +706,10 @@ async function buildTheme(options, roots, homeProof = null) {
   }
   job.theme = { id, path: destination };
   job.generationSpec = spec;
-  job.homeProof = homeProof;
-  job.verification = null;
   job.needsBuild = false;
-  job.status = homeProof ? "awaiting-home-verification" : "media-ready";
+  job.status = "media-ready";
   await saveJob(root, job);
   return { status: "completed", themeId: id, path: destination };
-}
-
-function validVerification(job) {
-  const verification = job.verification;
-  if (!verification?.passed || verification.themeId !== job.theme?.id || verification.pageMode !== "home") return false;
-  const expected = ["composer-companion", "home-welcome", "scene-code", "scene-daily", "scene-design"];
-  const actual = [...(verification.modules || [])].sort();
-  return JSON.stringify(actual) === JSON.stringify(expected)
-    && verification.overlayChecked === true
-    && verification.pauseClean === true
-    && verification.reapplyPassed === true
-    && Boolean(verification.screenshots?.applied && verification.screenshots?.overlay && verification.screenshots?.reapplied)
-    && Boolean(job.homeProof?.targetId && job.homeProof?.anchors?.["scene-tabs"]?.present && job.homeProof?.anchors?.["home-composer"]?.present);
 }
 
 function progressFor(job) {
@@ -874,7 +733,7 @@ function nextFor(job) {
   if (running.length) return { nextAction: "wait-running", requiresUser: false, batchId: running.find((call) => call.batchId)?.batchId ?? null, roles: running.map((call) => call.role) };
   if (job.reference?.kind === "local" && !job.confirmations.upload) return { nextAction: "confirm-upload", requiresUser: true };
   if (job.reference?.kind === "local" && !job.reference.url) return { nextAction: "upload-reference", requiresUser: false };
-  if (!job.confirmations.generation) return { nextAction: "confirm-generation", requiresUser: true, calls: job.backgroundMode === "direct" ? 5 : 8, backgroundCalls: job.backgroundMode === "direct" ? 0 : BACKGROUND_CANDIDATE_COUNT, backgroundOutputs: job.backgroundMode === "direct" ? 1 : BACKGROUND_CANDIDATE_COUNT };
+  if (!job.confirmations.generation) return { nextAction: "confirm-generation", requiresUser: true, calls: job.backgroundMode === "direct" ? 0 : BACKGROUND_CANDIDATE_COUNT, backgroundCalls: job.backgroundMode === "direct" ? 0 : BACKGROUND_CANDIDATE_COUNT, backgroundOutputs: job.backgroundMode === "direct" ? 1 : BACKGROUND_CANDIDATE_COUNT };
   const nextRole = (role) => {
     const output = job.outputs?.[role];
     if (output?.url && !output.normalized) return { nextAction: `ingest-${role}`, requiresUser: false };
@@ -893,16 +752,6 @@ function nextFor(job) {
     const available = Math.max(0, (job.callsAuthorized?.background ?? 0) - attempts);
     if (available > 0) return { nextAction: available > 1 ? "run-backgrounds" : "run-background", requiresUser: false, missing: BACKGROUND_CANDIDATE_COUNT - candidates, authorizedRemaining: available };
     return { nextAction: "authorize-background", requiresUser: true, missing: BACKGROUND_CANDIDATE_COUNT - candidates, suggestedCount: BACKGROUND_CANDIDATE_COUNT - candidates };
-  }
-  const batchCandidates = DERIVED_ROLES.filter((role) => {
-    if (job.outputs?.[role]?.url || job.outputs?.[role]?.normalized) return false;
-    const attempts = job.calls.filter((call) => call.role === role).length;
-    return attempts < (job.callsAuthorized?.[role] ?? 0);
-  });
-  if (batchCandidates.length > 1) return { nextAction: "run-derived", requiresUser: false, roles: batchCandidates };
-  for (const role of DERIVED_ROLES) {
-    const next = nextRole(role);
-    if (next) return next;
   }
   if (!job.confirmations.final) return { nextAction: "confirm-final", requiresUser: true };
   return { nextAction: "accept", requiresUser: false };
@@ -929,63 +778,12 @@ async function resumeJob(options, roots) {
   return { ...safeStatus(loaded.job), ...nextFor(loaded.job), progress: progressFor(loaded.job), resumedAt: new Date().toISOString() };
 }
 
-async function verifyHomeJob(options, roots, deps) {
-  let loaded = await loadJob(roots, options.job);
-  const wasAccepted = ["accepted", "accepted-pending-home", "accepted-home-compatible", "accepted-home-incompatible"].includes(loaded.job.status);
-  const waitSeconds = options.wait == null ? 60 : Number(options.wait);
-  const port = options.port == null ? 9223 : Number(options.port);
-  const homeProof = await deps.waitForHomeAnchors({ port, waitSeconds });
-  let specChanged = false;
-  if (options.spec && loaded.job.generationSpec) {
-    const requestedSpec = validateGenerationSpec(JSON.parse(await readFile(resolve(options.spec), "utf8")));
-    specChanged = JSON.stringify(requestedSpec) !== JSON.stringify(loaded.job.generationSpec);
-  }
-  if (!loaded.job.theme?.path || loaded.job.needsBuild === true || specChanged) {
-    if (!options.spec) throw new Error("首次 verify-home 需要 --spec");
-    await buildTheme(options, roots, homeProof);
-    loaded = await loadJob(roots, options.job);
-  } else {
-    const themePath = resolve(loaded.job.theme.path);
-    if (!inside(roots.storeRoot, themePath)) throw new Error("预览主题不在用户主题目录中");
-    await loadTheme(themePath);
-    loaded.job.homeProof = homeProof;
-    loaded.job.verification = null;
-    loaded.job.status = "awaiting-home-verification";
-    await saveJob(loaded.root, loaded.job);
-  }
-  const loadedTheme = await loadTheme(resolve(loaded.job.theme.path));
-  const verification = await deps.verifyHomeTheme({ loadedTheme, port, outputDir: join(loaded.root, "verification"), waitSeconds, homeProof, requireOverlay: true });
-  loaded = await loadJob(roots, options.job);
-  loaded.job.homeProof = homeProof;
-  loaded.job.verification = verification;
-  loaded.job.status = wasAccepted ? "accepted-home-compatible" : "verified";
-  await saveJob(loaded.root, loaded.job);
-  return { status: "completed", jobId: loaded.job.id, jobStatus: loaded.job.status, verification };
-}
-
-async function reopenVerification(options, roots) {
-  const { root, job } = await loadJob(roots, options.job);
-  if (!job.theme?.path) throw new Error("当前作业没有可复验主题");
-  const themePath = resolve(job.theme.path);
-  if (!inside(roots.storeRoot, themePath)) throw new Error("复验主题不在用户主题目录中");
-  const loaded = await loadTheme(themePath);
-  if (loaded.manifest.id !== job.theme.id) throw new Error("复验主题 ID 与作业不一致");
-  job.confirmations.final = false;
-  if (job.confirmationTimes) job.confirmationTimes.final = null;
-  job.homeProof = null;
-  job.verification = null;
-  job.needsBuild = false;
-  job.status = "awaiting-home-verification";
-  await saveJob(root, job);
-  return { status: "completed", jobId: job.id, jobStatus: job.status, themeId: job.theme.id, path: themePath, assets: loaded.moduleAssets.map(({ id, size }) => ({ id, size })) };
-}
-
 async function acceptJob(options, roots) {
   let { root, job } = await loadJob(roots, options.job);
   if (!job.confirmations.generation || !job.confirmations.final) throw new Error("accept 前必须确认完整调用量并完成最终确认");
-  if (!IMAGE_ROLES.every((role) => job.outputs?.[role]?.normalized)) throw new Error("accept 前必须完成全部六张素材");
+  if (!job.outputs?.background?.normalized) throw new Error("accept 前必须完成背景素材");
   if (!job.theme?.path || job.needsBuild) {
-    await buildTheme(options, roots, null);
+    await buildTheme(options, roots);
     ({ root, job } = await loadJob(roots, options.job));
   }
   const themePath = resolve(job.theme.path);
@@ -1001,9 +799,9 @@ async function acceptJob(options, roots) {
   if (job.reference) job.reference.url = null;
   await rm(join(root, "downloads"), { recursive: true, force: true });
   await rm(join(root, "normalized"), { recursive: true, force: true });
-  job.status = validVerification(job) ? "accepted-home-compatible" : "accepted-pending-home";
+  job.status = "accepted";
   await saveJob(root, job);
-  return { status: "completed", themeId: job.theme.id, path: job.theme.path, homeCompatibility: validVerification(job) ? "compatible" : "pending", next: "apply-theme" };
+  return { status: "completed", themeId: job.theme.id, path: job.theme.path, backgroundOnly: true, next: "apply-theme" };
 }
 
 async function discardJob(options, roots) {
@@ -1033,8 +831,7 @@ async function discardJob(options, roots) {
 }
 
 function safeStatus(job) {
-  const homeCompatibility = job.status === "accepted-home-compatible" ? "compatible" : job.status === "accepted-home-incompatible" ? "incompatible" : job.status === "accepted-pending-home" ? "pending" : null;
-  return { status: "completed", jobId: job.id, jobStatus: job.status, backgroundMode: job.backgroundMode, homeCompatibility, template: job.template, generation: job.generation, confirmations: job.confirmations, confirmationTimes: job.confirmationTimes, callsAuthorized: job.callsAuthorized, calls: job.calls.map(({ role, candidateIndex, model, quality, size, status, code, requestId, batchId, startedAt, finishedAt }) => ({ role, candidateIndex, model, quality, size, status, code, requestId, batchId, startedAt, finishedAt })), outputs: Object.fromEntries(Object.entries(job.outputs).map(([role, output]) => [role, output ? { downloaded: output.downloaded, normalized: output.normalized, previewedAt: output.previewedAt ?? null, sourceMode: output.sourceMode ?? null, hasPendingUrl: Boolean(output.url), candidateCount: output.candidates?.length ?? null } : null])), needsBuild: job.needsBuild ?? Boolean(!job.theme?.path), validation: job.validation ?? null, homeProof: job.homeProof ?? null, verification: job.verification ?? null, theme: job.theme, ...nextFor(job), progress: progressFor(job) };
+  return { status: "completed", jobId: job.id, jobStatus: job.status, backgroundMode: job.backgroundMode, backgroundOnly: true, template: job.template, generation: job.generation, confirmations: job.confirmations, confirmationTimes: job.confirmationTimes, callsAuthorized: job.callsAuthorized, calls: job.calls.map(({ role, candidateIndex, model, quality, size, status, code, requestId, batchId, startedAt, finishedAt }) => ({ role, candidateIndex, model, quality, size, status, code, requestId, batchId, startedAt, finishedAt })), outputs: Object.fromEntries(Object.entries(job.outputs).map(([role, output]) => [role, output ? { downloaded: output.downloaded, normalized: output.normalized, previewedAt: output.previewedAt ?? null, sourceMode: output.sourceMode ?? null, hasPendingUrl: Boolean(output.url), candidateCount: output.candidates?.length ?? null } : null])), needsBuild: job.needsBuild ?? Boolean(!job.theme?.path), validation: job.validation ?? null, theme: job.theme, ...nextFor(job), progress: progressFor(job) };
 }
 
 function parseOptions(argv) {
@@ -1052,8 +849,8 @@ export async function run(argv, overrides = {}) {
   const command = argv[0] || "help";
   const options = parseOptions(argv);
   const roots = stateRoots({ jobsRoot: options["jobs-root"], storeRoot: options["store-root"], discardedRoot: options["discarded-root"] });
-  const deps = { waitForHomeAnchors, verifyHomeTheme, ...overrides };
-  if (command === "help") return { status: "completed", commands: ["init", "preflight", "confirm", "authorize", "upload-reference", "run-image", "run-backgrounds", "run-derived", "ingest", "preview", "verify-home", "reopen-verification", "resume", "status", "accept", "discard"] };
+  const deps = { ...overrides };
+  if (command === "help") return { status: "completed", commands: ["init", "preflight", "confirm", "authorize", "upload-reference", "run-image", "run-backgrounds", "ingest", "preview", "resume", "status", "accept", "discard"] };
   if (command === "init") { await mkdir(roots.jobsRoot, { recursive: true }); return initialize(options, roots); }
   if (command === "preflight") return preflight(options);
   if (command === "confirm") return confirmGate(options, roots);
@@ -1061,12 +858,11 @@ export async function run(argv, overrides = {}) {
   if (command === "upload-reference") return uploadReference(options, roots);
   if (command === "run-image") return runImage(options, roots, deps);
   if (command === "run-backgrounds") return runBackgrounds(options, roots, deps);
-  if (command === "run-derived") return runDerived(options, roots, deps);
+  if (command === "run-derived") throw new Error("仅背景模式不再生成装饰模块");
   if (command === "ingest") return ingest(options, roots, deps);
   if (command === "preview") return previewOutput(options, roots);
   if (command === "build") throw new Error("build 已并入 verify-home，不能脱离真实 Home 锚点单独执行");
-  if (command === "verify-home") return verifyHomeJob(options, roots, deps);
-  if (command === "reopen-verification") return reopenVerification(options, roots);
+  if (command === "verify-home" || command === "reopen-verification") throw new Error("仅背景模式不需要 Home 组件验收");
   if (command === "resume") return resumeJob(options, roots);
   if (command === "status") return safeStatus((await loadJob(roots, options.job)).job);
   if (command === "accept") return acceptJob(options, roots);
