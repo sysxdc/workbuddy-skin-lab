@@ -1,6 +1,6 @@
 # WorkBuddy Skin Lab
 
-为 WorkBuddy 桌面端更换背景，并提供背景安全区、任务页展示方式、回答阅读层和可选背景粒子特效。当前稳定 Release 为 **v1.3.1，仅背景模式**；`main` 源码已包含下一版本的粒子特效。
+为 WorkBuddy 桌面端更换背景，并提供背景安全区、任务页展示方式、回答阅读层和可选背景粒子特效。当前稳定版本为 **v1.4.0**。
 
 > 本项目是社区工具，不属于 WorkBuddy 或腾讯官方项目。它只通过本机调试连接临时应用背景，不修改 WorkBuddy 安装文件。
 
@@ -24,15 +24,13 @@ WorkBuddy 更新后，首页标题、选项、对话框、卡片和宠物等内�
 
 ### 安装与启动
 
-1. 从 [v1.3.1 Release](https://github.com/sysxdc/workbuddy-skin-lab/releases/tag/v1.3.1) 下载 `WorkBuddy-Skin-Lab-1.3.1-Windows.zip`。
+1. 从 [v1.4.0 Release](https://github.com/sysxdc/workbuddy-skin-lab/releases/tag/v1.4.0) 下载 `WorkBuddy-Skin-Lab-1.4.0-Windows.zip`。
 2. 将 ZIP 完整解压到普通文件夹，不要直接在压缩包内运行。
 3. 双击 `环境检查.bat`，确认环境检查通过。
 4. 保存 WorkBuddy 中正在进行的任务，然后双击 `开始使用.bat`。
 5. WorkBuddy 重新打开后，点击右上角 `🎨` 调整背景。
 
 首次启动可能会自动重启 WorkBuddy，这是正常现象。
-
-如需立即使用粒子功能，请在仓库主页切换到 `main`，点击 `Code → Download ZIP`，完整解压源码包后运行其中的 `环境检查.bat` 和 `开始使用.bat`。v1.3.1 Release 暂时没有粒子选项。
 
 ### WorkBuddy 安装路径
 
@@ -57,8 +55,6 @@ WorkBuddy 更新后，首页标题、选项、对话框、卡片和宠物等内�
 本项目不会再提供宠物、顶部图文、原生组件动效、首页文字替换、场景图标替换或装饰组件功能。
 
 ## 环境粒子特效
-
-> 该功能已进入 `main` 源码，v1.3.1 Release 暂不包含；可以使用仓库源码运行，或等待下一版 Windows 发布包。
 
 打开 `🎨 → 环境粒子特效`：
 
@@ -88,7 +84,7 @@ WorkBuddy 更新后，首页标题、选项、对话框、卡片和宠物等内�
 
 AI 生成功能不是普通安装的必需项。需要时：
 
-1. 从 [v1.3.1 Release](https://github.com/sysxdc/workbuddy-skin-lab/releases/tag/v1.3.1) 下载并安装 `WorkBuddy-Skin-Lab-1.3.1-Skill.zip`；
+1. 从 [v1.4.0 Release](https://github.com/sysxdc/workbuddy-skin-lab/releases/tag/v1.4.0) 下载并安装 `WorkBuddy-Skin-Lab-1.4.0-Skill.zip`；
 2. 安装同一 Release 中的 `NoneLinear-Image-0.1.0-Skill.zip` 并配置图片服务；
 3. 在 WorkBuddy 新任务中同时启用两个 Skill，描述想要的背景；
 4. 新版 Skill 只会创建 `background-v1` 背景主题，不会套用旧版组件模板。
