@@ -13,6 +13,7 @@ html[data-workbuddy-skin-lab] {
   --wb-transition-width: clamp(140px, 14vw, 280px);
   --wb-focus-x: 50%;
   --wb-focus-y: 50%;
+  --wb-topbar-offset: 68px;
   --wb-panel-base: #fff;
   --wb-protected-surface: var(--wb-surface);
   --wb-protected-card: color-mix(in srgb, var(--wb-surface) 88%, var(--wb-panel-base));
@@ -56,6 +57,122 @@ html[data-workbuddy-skin-lab] #root {
   background-position: center, center, center, var(--wb-focus-x) var(--wb-focus-y) !important;
   background-size: 100% 100%, 100% 100%, 100% 100%, cover !important;
   background-repeat: no-repeat !important;
+  position: relative;
+  isolation: isolate;
+}
+#wb-skin-lab-effects {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none !important;
+  user-select: none;
+  contain: paint;
+}
+#wb-skin-lab-effects .wb-weather-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+#wb-skin-lab-effects .wb-weather-layer i {
+  position: absolute;
+  display: none;
+  left: var(--wb-particle-x);
+  top: -12vh;
+  opacity: .72;
+  pointer-events: none;
+  animation-delay: var(--wb-particle-delay);
+  animation-duration: var(--wb-particle-duration);
+  animation-iteration-count: infinite;
+  animation-timing-function: linear;
+  transform: scale(var(--wb-particle-scale));
+}
+#wb-skin-lab-effects[data-weather="rain"] .wb-weather-layer i,
+#wb-skin-lab-effects[data-weather="thunder"] .wb-weather-layer i {
+  display: block;
+  width: 1px;
+  height: clamp(12px, 2.4vh, 28px);
+  border-radius: 99px;
+  background: linear-gradient(180deg, transparent, rgb(218 235 255 / 88%));
+  box-shadow: 0 0 4px rgb(183 219 255 / 36%);
+  animation-name: wb-rain-fall;
+}
+#wb-skin-lab-effects[data-weather="snow"] .wb-weather-layer i {
+  display: block;
+  width: clamp(4px, .55vw, 9px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 88%);
+  box-shadow: 0 0 7px rgb(255 255 255 / 42%);
+  animation-name: wb-snow-fall;
+}
+#wb-skin-lab-effects[data-weather="thunder"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  background: rgb(226 235 255 / 48%);
+  mix-blend-mode: screen;
+  animation: wb-thunder-flash 9s linear infinite;
+}
+#wb-skin-lab-effects .wb-header-overlay {
+  position: absolute;
+  top: var(--wb-topbar-offset);
+  left: calc((100% + var(--wb-sidebar-width)) / 2);
+  display: none;
+  align-items: center;
+  gap: 10px;
+  max-width: min(42vw, 560px);
+  min-height: 34px;
+  padding: 6px 14px;
+  border: 1px solid color-mix(in srgb, var(--wb-accent) 26%, transparent);
+  border-radius: 999px;
+  color: var(--wb-protected-text);
+  background: color-mix(in srgb, var(--wb-surface) 58%, transparent);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+  backdrop-filter: blur(3px) saturate(1.04);
+  transform: translateX(-50%);
+}
+#wb-skin-lab-effects[data-header-visible="true"] .wb-header-overlay { display: flex; }
+#wb-skin-lab-effects[data-header-align="left"] .wb-header-overlay {
+  left: calc(var(--wb-sidebar-width) + 24px);
+  transform: none;
+}
+#wb-skin-lab-effects[data-header-align="right"] .wb-header-overlay {
+  right: 24px;
+  left: auto;
+  transform: none;
+}
+#wb-skin-lab-effects .wb-header-overlay img {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+#wb-skin-lab-effects .wb-header-overlay span {
+  overflow: hidden;
+  font: 600 14px/1.35 system-ui,-apple-system,"Microsoft YaHei",sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@keyframes wb-rain-fall {
+  from { transform: translate3d(0,-12vh,0) rotate(8deg) scale(var(--wb-particle-scale)); }
+  to { transform: translate3d(-8vw,124vh,0) rotate(8deg) scale(var(--wb-particle-scale)); }
+}
+@keyframes wb-snow-fall {
+  from { transform: translate3d(0,-12vh,0) scale(var(--wb-particle-scale)); }
+  to { transform: translate3d(var(--wb-particle-drift),124vh,0) rotate(360deg) scale(var(--wb-particle-scale)); }
+}
+@keyframes wb-thunder-flash {
+  0%, 69.9%, 71%, 72.5%, 100% { opacity: 0; }
+  70.3% { opacity: .34; }
+  71.8% { opacity: .18; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #wb-skin-lab-effects .wb-weather-layer,
+  #wb-skin-lab-effects[data-weather="thunder"]::after { display: none !important; animation: none !important; }
 }
 html[data-workbuddy-skin-lab][data-wb-safe-area="left"] #root,
 html[data-workbuddy-skin-lab][data-wb-safe-area="auto"] #root {
