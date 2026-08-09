@@ -8,7 +8,7 @@ WorkBuddy Skin Lab 的半自动主题流程只调用 WorkBuddy 中已安装并�
 
 在 WorkBuddy 左侧进入“更多 → 专家·技能·连接器 → 技能”，点击“添加技能 → 上传技能”，依次导入发布目录中的：
 
-- `WorkBuddy-Skin-Lab-1.3.0-Skill.zip`
+- `WorkBuddy-Skin-Lab-1.3.1-Skill.zip`
 - `NoneLinear-Image-0.1.0-Skill.zip`
 
 导入后在“已安装”中只启用这两个 Skill。WorkBuddy 官方支持通过本地技能包导入，并可在对话中直接调用。主题 Skill 只调用 NoneLinear Skill 自带的 `scripts/generate-image.mjs`；不使用 WorkBuddy 内置图片生成工具、`nl`、`curl` 或临时 API 请求。
