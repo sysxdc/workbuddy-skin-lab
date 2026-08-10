@@ -54,10 +54,14 @@ export async function themeEntry(loaded) {
   const backgrounds = await Promise.all(sourceBackgrounds.map(async (background) => ({
     id: background.id, label: background.label, asset: background.asset, dataUrl: await dataUrl(background.path),
   })));
+  const particles = await Promise.all((loaded.particleAssets || []).map(async (particle) => ({
+    id: particle.id, label: particle.label, asset: particle.asset, dataUrl: await dataUrl(particle.path),
+  })));
   return {
     ...loaded.manifest,
     backgroundDataUrl: backgrounds[0].dataUrl,
     backgrounds,
+    particles: { ...loaded.manifest.particles, assets: particles },
     homeHeader: null,
     copySets: [],
     modules: [],

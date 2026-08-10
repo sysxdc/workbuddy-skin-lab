@@ -13,10 +13,12 @@ import { assetPath, loadTheme, validateThemeManifest, verifiedAsset } from "../s
 
 export const JOB_VERSION = 1;
 export const TEMPLATE_VERSION = "background-v1";
+export const PARTICLE_TEMPLATE_VERSION = "particle-v1";
 export const IMAGE_MODEL = "gpt-image-2";
 export const IMAGE_QUALITY = "low";
 export const BACKGROUND_CANDIDATE_COUNT = 3;
 export const IMAGE_ROLES = Object.freeze(["background"]);
+export const PARTICLE_CANDIDATE_COUNT = 3;
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const CONTENT_TYPES = new Map([["image/jpeg", ".jpg"], ["image/png", ".png"], ["image/webp", ".webp"]]);
 const MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024;
@@ -83,7 +85,7 @@ async function loadJob(roots, jobId) {
   const root = jobPath(roots.jobsRoot, jobId);
   const job = JSON.parse(await readFile(join(root, "job.json"), "utf8"));
   if (job.version !== JOB_VERSION || job.id !== jobId) throw new Error("job.json 无效");
-  if (job.template !== TEMPLATE_VERSION) throw new Error(`旧作业模板 ${job.template || "unknown"} 已停用；请新建 ${TEMPLATE_VERSION} 背景作业`);
+  if (![TEMPLATE_VERSION, PARTICLE_TEMPLATE_VERSION].includes(job.template)) throw new Error(`旧作业模板 ${job.template || "unknown"} 已停用；请新建 ${TEMPLATE_VERSION} 或 ${PARTICLE_TEMPLATE_VERSION} 作业`);
   job.backgroundMode ??= job.reference ? "edit" : "generate";
   job.confirmations ??= { upload: false, background: false, final: false };
   job.confirmations.generation ??= Boolean(job.confirmations.background);
@@ -237,8 +239,9 @@ async function runProcess(executable, args, { maxOutput = 2 * 1024 * 1024, env =
 }
 
 function roleSpec(role) {
-  if (!IMAGE_ROLES.includes(role)) throw new Error("未知图片角色");
-  return { size: "2048x1152", kind: "background" };
+  if (role === "background") return { size: "2048x1152", kind: "background" };
+  if (role === "particle") return { size: "512x512", kind: "particle" };
+  throw new Error("未知图片角色");
 }
 
 export function validateGenerationSpec(input) {
@@ -269,6 +272,42 @@ export function fixedManifest(spec, id, backgroundCount = 3) {
   };
   validateThemeManifest(manifest);
   return manifest;
+}
+
+export function validateParticleSpec(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("particle spec 必须是对象");
+  if (input.template !== PARTICLE_TEMPLATE_VERSION) throw new Error(`template 必须是 ${PARTICLE_TEMPLATE_VERSION}`);
+  const motion = input.motion && typeof input.motion === "object" && !Array.isArray(input.motion) ? input.motion : {};
+  const bounded = (key, fallback, min, max) => Number.isFinite(motion[key] ?? fallback) && (motion[key] ?? fallback) >= min && (motion[key] ?? fallback) <= max ? motion[key] ?? fallback : null;
+  const type = motion.type ?? "float";
+  if (!["fall", "rise", "float", "sweep"].includes(type)) throw new Error("motion.type 无效");
+  const result = {
+    type, duration: bounded("duration", 12, 4, 30), sway: bounded("sway", 96, 0, 220),
+    rotation: bounded("rotation", 180, 0, 720), pulse: bounded("pulse", 0.12, 0, 0.45),
+    opacity: bounded("opacity", 0.72, 0.25, 1), twinkle: Boolean(motion.twinkle),
+  };
+  if (Object.values(result).some((value) => value === null)) throw new Error("motion 参数超出安全范围");
+  return { template: PARTICLE_TEMPLATE_VERSION, name: typeof input.name === "string" && input.name.trim() ? input.name.trim().slice(0, 60) : null, motion: result };
+}
+
+async function initializeParticle(options, roots) {
+  if (!options["source-theme"] || !options["prompt-file"]) throw new Error("particle-init 需要 --source-theme 和 --prompt-file");
+  const sourcePath = resolve(options["source-theme"]);
+  const source = await loadTheme(sourcePath);
+  const prompt = (await readFile(resolve(options["prompt-file"]), "utf8")).trim();
+  if (!prompt) throw new Error("粒子提示词不能为空");
+  const id = `job-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
+  const root = jobPath(roots.jobsRoot, id);
+  await mkdir(root, { recursive: false });
+  const job = {
+    version: JOB_VERSION, id, template: PARTICLE_TEMPLATE_VERSION, name: options.name?.trim().slice(0, 60) || `${source.manifest.name} 粒子`, prompt,
+    sourceTheme: { id: source.manifest.id, path: source.root }, status: "initialized", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    generation: { model: IMAGE_MODEL, quality: IMAGE_QUALITY, responseFormat: "url", timeoutMs: IMAGE_TIMEOUT_MS, roles: { particle: roleSpec("particle") } },
+    confirmations: { generation: false, final: false }, confirmationTimes: { generation: null, final: null },
+    callsAuthorized: { particle: 0 }, calls: [], outputs: {}, generationSpec: null, theme: null, needsBuild: true,
+  };
+  await atomicJson(join(root, "job.json"), job);
+  return { status: "completed", jobId: id, template: job.template, sourceThemeId: source.manifest.id, next: "confirm-generation" };
 }
 
 async function initialize(options, roots) {
@@ -404,10 +443,11 @@ async function imageRunner(options) {
 
 async function imageInvocation(job, role, prompt, runner) {
   const spec = roleSpec(role);
-  const referenceUrl = role === "background" ? job.reference?.url : (job.outputs.background?.candidates?.[0]?.url || job.outputs.background?.url || job.reference?.url);
+  const referenceUrl = role === "background" ? job.reference?.url : null;
   if (job.reference?.kind === "local" && role === "background" && !referenceUrl) throw new Error("本地参考图尚未上传");
   if (referenceUrl) await assertPublicDns(publicHttpsUrl(referenceUrl));
-  const safePrompt = `${prompt}\nNo text, letters, typography, UI frames, WorkBuddy logos, or watermarks.`;
+  const particleGuard = role === "particle" ? "\nCreate one isolated decorative particle centered on a transparent background. Keep all corners transparent. No scene, border, text, letters, typography, UI frames, logos, or watermarks." : "";
+  const safePrompt = `${prompt}${particleGuard}\nNo text, letters, typography, UI frames, WorkBuddy logos, or watermarks.`;
   const imageArgs = ["--model", IMAGE_MODEL, "--prompt", safePrompt, "--size", spec.size, "--quality", IMAGE_QUALITY, "--response-format", "url"];
   if (referenceUrl) imageArgs.push("--operation", "edit", "--image", publicHttpsUrl(referenceUrl));
   return { args: [runner.adapter, "--skill-script", runner.skillScript, "--", ...imageArgs], spec };
@@ -464,6 +504,16 @@ function finishImageCall(job, call, execution, error = null) {
     output.requestId = output.candidates[0]?.requestId || null;
     output.sourceMode = job.backgroundMode;
     job.outputs.background = output;
+    return { status: "completed", role: call.role, candidateIndex, url: urls[0], requestId: call.requestId };
+  }
+  if (call.role === "particle") {
+    const candidateIndex = Number.isInteger(call.candidateIndex) ? call.candidateIndex : 0;
+    const output = job.outputs.particle || { candidates: [], url: null, requestId: null, downloaded: null, normalized: null, previewedAt: null, sourceMode: "generated" };
+    const candidate = { id: `particle-${candidateIndex + 1}`, label: `粒子${candidateIndex + 1}`, url: urls[0], requestId: call.requestId, downloaded: null, normalized: null };
+    output.candidates = [...(output.candidates || []).filter((item) => item?.id !== candidate.id), candidate].sort((left, right) => left.id.localeCompare(right.id));
+    output.url = output.candidates[0]?.url || null;
+    output.requestId = output.candidates[0]?.requestId || null;
+    job.outputs.particle = output;
     return { status: "completed", role: call.role, candidateIndex, url: urls[0], requestId: call.requestId };
   }
   const url = urls[0];
@@ -564,10 +614,69 @@ async function runBackgrounds(options, roots, dependencies = {}) {
   return { status: candidates.length === BACKGROUND_CANDIDATE_COUNT ? "completed" : "failed", batchId, completed, failed, outcomeUnknown, candidateCount: candidates.length, urls: candidates.map((item) => item.url), defaultUrl: candidates[0]?.url || null, roles: results };
 }
 
+async function confirmParticle(options, roots) {
+  const { root, job } = await loadJob(roots, options.job);
+  if (job.template !== PARTICLE_TEMPLATE_VERSION) throw new Error("当前不是 particle-v1 作业");
+  if (options.gate === "generation") {
+    if (job.confirmations.generation) throw new Error("本作业的完整调用量已经确认");
+    job.confirmations.generation = true;
+    job.confirmationTimes.generation = new Date().toISOString();
+    job.callsAuthorized.particle = PARTICLE_CANDIDATE_COUNT;
+  } else if (options.gate === "final") {
+    if (!job.outputs.particle?.normalized) throw new Error("最终确认前必须完成粒子素材");
+    job.confirmations.final = true;
+    job.confirmationTimes.final = new Date().toISOString();
+  } else throw new Error("particle 作业 gate 必须是 generation 或 final");
+  await saveJob(root, job);
+  return { status: "completed", gate: options.gate };
+}
+
+async function runParticles(options, roots, dependencies = {}) {
+  const { root, job } = await loadJob(roots, options.job);
+  if (job.template !== PARTICLE_TEMPLATE_VERSION) throw new Error("当前不是 particle-v1 作业");
+  if (!job.confirmations.generation) throw new Error("并行生成粒子前必须一次确认完整调用量");
+  if (!options["prompt-file"] || !options["skill-script"]) throw new Error("run-particles 需要 --prompt-file 和 --skill-script");
+  const prompt = (await readFile(resolve(options["prompt-file"]), "utf8")).trim();
+  if (!prompt) throw new Error("粒子提示词不能为空");
+  const existing = new Set((job.outputs.particle?.candidates || []).map((item) => item?.id));
+  const missing = [...Array(PARTICLE_CANDIDATE_COUNT).keys()].filter((index) => !existing.has(`particle-${index + 1}`));
+  const attempts = job.calls.filter((call) => call.role === "particle").length;
+  const available = Math.max(0, (job.callsAuthorized.particle || 0) - attempts);
+  const candidateIndexes = missing.slice(0, available);
+  if (!candidateIndexes.length) throw new Error(`还缺 ${missing.length} 张粒子候选，需要用户明确授权新的粒子调用`);
+  const runner = await imageRunner(options);
+  const batchId = `particle-batch-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
+  const prepared = await Promise.all(candidateIndexes.map(async (candidateIndex) => {
+    const candidatePrompt = `${prompt}\nCreate variation ${candidateIndex + 1} of ${PARTICLE_CANDIDATE_COUNT}; preserve the requested particle subject and visual style.`;
+    const invocation = await imageInvocation(job, "particle", candidatePrompt, runner);
+    return { candidateIndex, invocation, call: { role: "particle", candidateIndex, prompt: candidatePrompt, model: IMAGE_MODEL, quality: IMAGE_QUALITY, size: invocation.spec.size, responseFormat: "url", startedAt: new Date().toISOString(), status: "running", ownerPid: process.pid, batchId } };
+  }));
+  for (const item of prepared) job.calls.push(item.call);
+  job.status = "particle-generating";
+  await saveJob(root, job);
+  let saveQueue = Promise.resolve();
+  const persist = () => { saveQueue = saveQueue.then(() => saveJob(root, job)); return saveQueue; };
+  const stopHeartbeat = dependencies.startHeartbeat ? dependencies.startHeartbeat({ label: `${prepared.length} 张粒子候选并行生成` }) : dependencies.executeImageProcess ? () => {} : startForegroundHeartbeat({ label: `${prepared.length} 张粒子候选并行生成` });
+  let results;
+  try {
+    results = await Promise.all(prepared.map(async (item) => {
+      let execution; let error = null;
+      try { execution = await (dependencies.executeImageProcess ? dependencies.executeImageProcess({ role: "particle", candidateIndex: item.candidateIndex, args: item.invocation.args, timeoutMs: IMAGE_PROCESS_TIMEOUT_MS }) : runProcess(runner.node, item.invocation.args, { maxOutput: 2 * 1024 * 1024, timeoutMs: IMAGE_PROCESS_TIMEOUT_MS })); } catch (caught) { error = caught; }
+      const result = finishImageCall(job, item.call, execution, error); await persist(); return result;
+    }));
+  } finally { stopHeartbeat(); }
+  await saveQueue;
+  const candidates = job.outputs.particle?.candidates || [];
+  job.status = candidates.length === PARTICLE_CANDIDATE_COUNT ? "particle-generated" : "particle-incomplete";
+  await saveJob(root, job);
+  return { status: candidates.length === PARTICLE_CANDIDATE_COUNT ? "completed" : "failed", batchId, candidateCount: candidates.length, urls: candidates.map((item) => item.url), roles: results };
+}
+
 async function ingest(options, roots, dependencies = {}) {
   const { root, job } = await loadJob(roots, options.job);
   const role = options.role;
   const spec = roleSpec(role);
+  if (role === "particle" && job.template !== PARTICLE_TEMPLATE_VERSION) throw new Error("particle 素材只能属于 particle-v1 作业");
   if (!job.confirmations.generation) throw new Error("准备图片前必须一次确认完整调用量");
   let output = job.outputs[role];
   const normalizer = resolve(options.normalizer || join(dirname(fileURLToPath(import.meta.url)), "normalize-generated-image.py"));
@@ -627,6 +736,26 @@ async function ingest(options, roots, dependencies = {}) {
     await saveJob(root, job);
     return { status: "completed", role, paths: normalizedItems.map((item) => item.path), width: normalizedItems[0].parsed.width, height: normalizedItems[0].parsed.height, sizes: normalizedItems.map((item) => item.parsed.size), default: normalizedItems[0].path };
   }
+  if (role === "particle") {
+    if (!Array.isArray(output?.candidates) || output.candidates.length !== PARTICLE_CANDIDATE_COUNT) throw new Error("粒子必须完整返回三张图片，不能自动补图");
+    const downloads = await Promise.all(output.candidates.map((candidate, index) => (dependencies.downloadImage || downloadImage)(candidate.url, join(root, "downloads", `particle-${index + 1}`))));
+    const normalizedItems = [];
+    for (let index = 0; index < downloads.length; index += 1) {
+      const normalizedPath = join(root, "normalized", `particle-${index + 1}.png`);
+      const parsed = await normalizeOne(downloads[index].path, normalizedPath);
+      normalizedItems.push({ path: normalizedPath, parsed });
+      output.candidates[index].downloaded = relative(root, downloads[index].path);
+      output.candidates[index].normalized = relative(root, normalizedPath);
+    }
+    output.url = output.candidates[0].url;
+    output.downloaded = output.candidates[0].downloaded;
+    output.normalized = output.candidates[0].normalized;
+    output.previewedAt = new Date().toISOString();
+    job.outputs.particle = output;
+    job.needsBuild = true;
+    await saveJob(root, job);
+    return { status: "completed", role, paths: normalizedItems.map((item) => item.path), width: normalizedItems[0].parsed.width, height: normalizedItems[0].parsed.height, sizes: normalizedItems.map((item) => item.parsed.size), default: normalizedItems[0].path };
+  }
   if (!output?.url) throw new Error(`${role} 没有可下载的生成结果`);
   const downloaded = await (dependencies.downloadImage || downloadImage)(output.url, join(root, "downloads", role));
   const normalizedPath = join(root, "normalized", `${role}.png`);
@@ -647,15 +776,15 @@ async function ingest(options, roots, dependencies = {}) {
 async function previewOutput(options, roots) {
   const { root, job } = await loadJob(roots, options.job);
   const role = options.role;
-  if (role !== "background") throw new Error("首版 preview 只支持 background");
-  const output = job.outputs.background;
-  if (!output?.normalized) throw new Error("背景尚未标准化，不能展示");
-  const candidates = output.candidates?.length ? output.candidates : [{ id: "background-1", label: "默认背景", url: output.url, normalized: output.normalized }];
+  if (!["background", "particle"].includes(role)) throw new Error("preview 只支持 background 或 particle");
+  const output = job.outputs[role];
+  if (!output?.normalized) throw new Error(`${role === "particle" ? "粒子" : "背景"}尚未标准化，不能展示`);
+  const candidates = output.candidates?.length ? output.candidates : [{ id: `${role}-1`, label: role === "particle" ? "粒子1" : "默认背景", url: output.url, normalized: output.normalized }];
   const previews = [];
   for (const candidate of candidates) {
     const path = jobFile(root, candidate.normalized, `${candidate.id}.normalized`);
     const info = await stat(path);
-    if (!info.isFile() || info.size < 1) throw new Error("背景预览文件无效");
+    if (!info.isFile() || info.size < 1) throw new Error(`${role === "particle" ? "粒子" : "背景"}预览文件无效`);
     const url = candidate.url ? publicHttpsUrl(candidate.url) : null;
     previews.push({ id: candidate.id, label: candidate.label, path, url, markdown: url ? `![${candidate.label}](${url})` : null });
   }
@@ -663,9 +792,44 @@ async function previewOutput(options, roots) {
   await saveJob(root, job);
   return {
     status: "completed", role, sourceMode: output.sourceMode || job.backgroundMode, previews, defaultId: previews[0].id,
-    instruction: "已默认选择方案1并继续；主题完成后可在 🎨 → 主题与背景中随时切换，不会再次生图。",
+    instruction: role === "particle" ? "已默认选择粒子1并继续；主题完成后可在 🎨 → 环境粒子特效中切换与微调，不会再次生图。" : "已默认选择方案1并继续；主题完成后可在 🎨 → 主题与背景中随时切换，不会再次生图。",
     previewedAt: output.previewedAt,
   };
+}
+
+async function buildParticleTheme(options, roots) {
+  const { root, job } = await loadJob(roots, options.job);
+  if (job.template !== PARTICLE_TEMPLATE_VERSION || !options.spec) throw new Error("particle 构建需要 particle-v1 作业和 --spec");
+  const spec = validateParticleSpec(JSON.parse(await readFile(resolve(options.spec), "utf8")));
+  if (!job.outputs.particle?.normalized || job.outputs.particle.candidates?.length !== PARTICLE_CANDIDATE_COUNT) throw new Error("particle 尚未标准化三张候选");
+  const source = await loadTheme(job.sourceTheme.path);
+  const suffix = createHash("sha256").update(job.id).digest("hex").slice(0, 8);
+  const id = job.theme?.id ?? `${slugify(spec.name || source.manifest.name)}-particles-${suffix}`;
+  const destination = join(roots.storeRoot, id);
+  const temporary = join(roots.storeRoot, `.tmp-${id}-${process.pid}-${randomBytes(3).toString("hex")}`);
+  const particleAssets = job.outputs.particle.candidates.map((candidate) => ({ id: candidate.id, label: candidate.label, asset: `particles/${candidate.id}.png` }));
+  const { modules: _modules, homeHeader: _homeHeader, copySets: _copySets, particles: _particles, ...baseManifest } = source.manifest;
+  const manifest = { ...baseManifest, id, name: spec.name || `${source.manifest.name} · 自定义粒子`, particles: { assets: particleAssets, defaultAssetId: particleAssets[0].id, defaultMotion: spec.motion }, modules: [] };
+  validateThemeManifest(manifest);
+  await mkdir(join(temporary, "particles"), { recursive: true });
+  try {
+    for (const background of source.backgroundAssets) {
+      const destinationPath = join(temporary, background.asset);
+      await mkdir(dirname(destinationPath), { recursive: true });
+      await copyFile(background.path, destinationPath);
+    }
+    for (const candidate of job.outputs.particle.candidates) await copyFile(jobFile(root, candidate.normalized, `${candidate.id}.normalized`), join(temporary, `particles/${candidate.id}.png`));
+    await writeFile(join(temporary, "theme.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+    const loaded = await loadTheme(temporary);
+    job.validation = { checkedAt: new Date().toISOString(), background: { asset: manifest.background }, particles: loaded.particleAssets.map(({ id: particleId, asset, size }) => ({ id: particleId, asset, size })), warnings: loaded.warnings };
+    await mkdir(roots.storeRoot, { recursive: true });
+    try { await access(destination); const backup = join(root, "backups", `${id}-${Date.now()}`); await mkdir(dirname(backup), { recursive: true }); await rename(destination, backup); } catch (error) { if (error.code !== "ENOENT") throw error; }
+    await rename(temporary, destination);
+  } catch (error) { await rm(temporary, { recursive: true, force: true }); throw error; }
+  job.theme = { id, path: destination };
+  job.generationSpec = spec; job.needsBuild = false; job.status = "media-ready";
+  await saveJob(root, job);
+  return { status: "completed", themeId: id, path: destination };
 }
 
 async function buildTheme(options, roots) {
@@ -713,6 +877,11 @@ async function buildTheme(options, roots) {
 }
 
 function progressFor(job) {
+  if (job.template === PARTICLE_TEMPLATE_VERSION) {
+    const persisted = Boolean(job.validation?.particles?.length && job.theme?.path);
+    const output = job.outputs?.particle;
+    return { ready: (output?.normalized || persisted) ? 1 : 0, total: 1, roles: { particle: { generated: Boolean(output?.url), normalized: Boolean(output?.normalized), persisted, attempts: job.calls.filter((call) => call.role === "particle").length, authorized: job.callsAuthorized?.particle ?? 0 } } };
+  }
   const persistedRoles = new Set((job.validation?.modules ?? []).map(({ id }) => id));
   if (job.validation?.background && job.theme?.path) persistedRoles.add("background");
   const readyRoles = IMAGE_ROLES.filter((role) => Boolean(job.outputs?.[role]?.normalized) || persistedRoles.has(role));
@@ -727,6 +896,20 @@ function progressFor(job) {
 }
 
 function nextFor(job) {
+  if (job.template === PARTICLE_TEMPLATE_VERSION) {
+    if (job.status === "discarded") return { nextAction: "discarded", requiresUser: false };
+    if (job.status === "accepted") return { nextAction: "apply-theme", requiresUser: false };
+    if (job.calls.some((call) => call.status === "running")) return { nextAction: "wait-running", requiresUser: false, roles: ["particle"] };
+    if (!job.confirmations.generation) return { nextAction: "confirm-generation", requiresUser: true, calls: PARTICLE_CANDIDATE_COUNT, particleCalls: PARTICLE_CANDIDATE_COUNT };
+    const candidates = job.outputs?.particle?.candidates?.length ?? 0;
+    if (!job.outputs?.particle?.normalized) {
+      if (candidates >= PARTICLE_CANDIDATE_COUNT) return { nextAction: "ingest-particle", requiresUser: false };
+      const available = Math.max(0, (job.callsAuthorized?.particle ?? 0) - job.calls.filter((call) => call.role === "particle").length);
+      return available > 0 ? { nextAction: "run-particles", requiresUser: false, missing: PARTICLE_CANDIDATE_COUNT - candidates } : { nextAction: "authorize-particle", requiresUser: true, missing: PARTICLE_CANDIDATE_COUNT - candidates };
+    }
+    if (!job.confirmations.final) return { nextAction: "confirm-final", requiresUser: true };
+    return { nextAction: "accept", requiresUser: false };
+  }
   if (job.status === "discarded") return { nextAction: "discarded", requiresUser: false };
   if (["accepted", "accepted-pending-home", "accepted-home-compatible", "accepted-home-incompatible"].includes(job.status)) return { nextAction: "apply-theme", requiresUser: false };
   const running = (job.calls ?? []).filter((call) => call.status === "running");
@@ -781,6 +964,26 @@ async function resumeJob(options, roots) {
 async function acceptJob(options, roots) {
   let { root, job } = await loadJob(roots, options.job);
   if (!job.confirmations.generation || !job.confirmations.final) throw new Error("accept 前必须确认完整调用量并完成最终确认");
+  if (job.template === PARTICLE_TEMPLATE_VERSION) {
+    if (!job.outputs?.particle?.normalized) throw new Error("accept 前必须完成粒子素材");
+    if (!job.theme?.path || job.needsBuild) {
+      await buildParticleTheme(options, roots);
+      ({ root, job } = await loadJob(roots, options.job));
+    }
+    const themePath = resolve(job.theme.path);
+    if (!inside(roots.storeRoot, themePath)) throw new Error("接受主题不在用户主题目录中");
+    await loadTheme(themePath);
+    for (const output of Object.values(job.outputs)) {
+      if (!output) continue;
+      output.url = null; output.downloaded = null; output.normalized = null;
+      for (const candidate of output.candidates || []) { candidate.url = null; candidate.downloaded = null; candidate.normalized = null; }
+    }
+    await rm(join(root, "downloads"), { recursive: true, force: true });
+    await rm(join(root, "normalized"), { recursive: true, force: true });
+    job.status = "accepted";
+    await saveJob(root, job);
+    return { status: "completed", themeId: job.theme.id, path: job.theme.path, backgroundOnly: true, particleOnly: true, next: "apply-theme" };
+  }
   if (!job.outputs?.background?.normalized) throw new Error("accept 前必须完成背景素材");
   if (!job.theme?.path || job.needsBuild) {
     await buildTheme(options, roots);
@@ -850,14 +1053,17 @@ export async function run(argv, overrides = {}) {
   const options = parseOptions(argv);
   const roots = stateRoots({ jobsRoot: options["jobs-root"], storeRoot: options["store-root"], discardedRoot: options["discarded-root"] });
   const deps = { ...overrides };
-  if (command === "help") return { status: "completed", commands: ["init", "preflight", "confirm", "authorize", "upload-reference", "run-image", "run-backgrounds", "ingest", "preview", "resume", "status", "accept", "discard"] };
+  if (command === "help") return { status: "completed", commands: ["init", "particle-init", "preflight", "confirm", "particle-confirm", "authorize", "upload-reference", "run-image", "run-backgrounds", "run-particles", "ingest", "preview", "resume", "status", "accept", "discard"] };
   if (command === "init") { await mkdir(roots.jobsRoot, { recursive: true }); return initialize(options, roots); }
+  if (command === "particle-init") { await mkdir(roots.jobsRoot, { recursive: true }); return initializeParticle(options, roots); }
   if (command === "preflight") return preflight(options);
   if (command === "confirm") return confirmGate(options, roots);
+  if (command === "particle-confirm") return confirmParticle(options, roots);
   if (command === "authorize") return authorizeRetry(options, roots);
   if (command === "upload-reference") return uploadReference(options, roots);
   if (command === "run-image") return runImage(options, roots, deps);
   if (command === "run-backgrounds") return runBackgrounds(options, roots, deps);
+  if (command === "run-particles") return runParticles(options, roots, deps);
   if (command === "run-derived") throw new Error("仅背景模式不再生成装饰模块");
   if (command === "ingest") return ingest(options, roots, deps);
   if (command === "preview") return previewOutput(options, roots);
