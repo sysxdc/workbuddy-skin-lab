@@ -262,7 +262,13 @@ function runtimeMain(payload) {
   state.cleanups.push(() => effectsHost.remove());
   const weatherLayer = effectsHost.querySelector(".wb-weather-layer");
 
-  const unitValue = (seed) => ((seed * 9301 + 49297) % 233280) / 233280;
+  const unitValue = (seed) => {
+    let value = Math.imul((seed + 0x9e3779b9) >>> 0, 0x85ebca6b);
+    value ^= value >>> 13;
+    value = Math.imul(value, 0xc2b2ae35);
+    value ^= value >>> 16;
+    return (value >>> 0) / 4294967296;
+  };
   const syncAmbientEffects = () => {
     const custom = overrides();
     const weather = ["none", "rain", "thunder", "snow", "hearts", "stars", "custom"].includes(custom.weather) ? custom.weather : "none";
@@ -289,19 +295,30 @@ function runtimeMain(payload) {
       stars: ["✦", "★", "✧", "⋆"],
       custom: [customSymbol],
     };
+    const modeSeed = { rain: 0, thunder: 1000, snow: 2000, hearts: 3000, stars: 4000, custom: 5000 }[weather] || 0;
     for (let index = 0; index < count; index += 1) {
       const particle = document.createElement("i");
+      const randomValue = (salt) => unitValue(modeSeed + index * 131 + salt);
       particle.textContent = symbols[weather]?.[index % symbols[weather].length] || "";
-      particle.style.setProperty("--wb-particle-x", `${Math.round(unitValue(index + 11) * 10000) / 100}%`);
-      particle.style.setProperty("--wb-particle-delay", `${Math.round(unitValue(index + 37) * -900) / 100}s`);
+      particle.style.setProperty("--wb-particle-x", `${Math.round(randomValue(11) * 10000) / 100}%`);
       const durationBase = weather === "rain" || weather === "thunder"
-        ? 0.65 + unitValue(index + 71) * 0.8
-        : weather === "snow" ? 8 + unitValue(index + 71) * 8 : 6 + unitValue(index + 71) * 7;
+        ? 0.65 + randomValue(71) * 0.8
+        : weather === "snow" ? 9 + randomValue(71) * 9 : 7 + randomValue(71) * 8;
       const duration = durationBase * speedScale;
       particle.style.setProperty("--wb-particle-duration", `${Math.round(duration * 100) / 100}s`);
-      particle.style.setProperty("--wb-particle-scale", `${Math.round((0.55 + unitValue(index + 101) * 0.9) * 100) / 100}`);
-      particle.style.setProperty("--wb-particle-drift", `${Math.round((unitValue(index + 131) - 0.5) * 180)}px`);
-      particle.style.setProperty("--wb-particle-opacity", `${Math.round((0.42 + unitValue(index + 151) * 0.5) * 100) / 100}`);
+      particle.style.setProperty("--wb-particle-delay", `${Math.round(randomValue(37) * duration * -100) / 100}s`);
+      particle.style.setProperty("--wb-particle-scale", `${Math.round((0.55 + randomValue(101) * 0.9) * 100) / 100}`);
+      particle.style.setProperty("--wb-particle-opacity", `${Math.round((0.42 + randomValue(151) * 0.5) * 100) / 100}`);
+      const driftRange = weather === "snow" ? 100 : weather === "stars" ? 150 : 130;
+      const drift = (salt) => `${Math.round((randomValue(salt) - 0.5) * driftRange * 2)}px`;
+      particle.style.setProperty("--wb-drift-a", drift(181));
+      particle.style.setProperty("--wb-drift-b", drift(211));
+      particle.style.setProperty("--wb-drift-c", drift(241));
+      particle.style.setProperty("--wb-drift-end", drift(271));
+      const spin = Math.round((randomValue(301) - 0.5) * 720);
+      particle.style.setProperty("--wb-spin-a", `${Math.round(spin * 0.28)}deg`);
+      particle.style.setProperty("--wb-spin-b", `${Math.round(spin * 0.62)}deg`);
+      particle.style.setProperty("--wb-spin-end", `${spin}deg`);
       weatherLayer.appendChild(particle);
     }
     const weatherSelect = document.querySelector(`#${ids.dock} [data-setting="weather"]`);

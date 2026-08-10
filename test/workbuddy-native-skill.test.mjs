@@ -22,5 +22,5 @@ test("Release Skill 只执行背景工作流", async () => {
   assert.match(setup, /NoneLinear-Image-0\.1\.0-Skill\.zip/);
   assert.match(packager, /Compress-Archive/);
   assert.match(packager, /CODEBUDDY_SKILL_DIR/);
-  assert.equal(version, "1.4.0");
+  assert.equal(version, "1.4.1");
 });

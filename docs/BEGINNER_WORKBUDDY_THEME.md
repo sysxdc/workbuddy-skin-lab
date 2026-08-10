@@ -7,7 +7,7 @@
 从 GitHub Release 下载并导入：
 
 ```text
-WorkBuddy-Skin-Lab-1.4.0-Skill.zip
+WorkBuddy-Skin-Lab-1.4.1-Skill.zip
 NoneLinear-Image-0.1.0-Skill.zip
 ```
 

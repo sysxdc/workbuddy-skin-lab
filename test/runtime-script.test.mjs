@@ -60,6 +60,12 @@ test("生成的注入脚本只保留背景控制和可清理状态", () => {
   assert.match(script, /data-setting="particle-symbol"/);
   assert.match(script, /particle\.textContent = symbols/);
   assert.match(script, /\.slice\(0, 2\)\.join/);
+  assert.match(script, /Math\.imul/);
+  assert.match(script, /modeSeed \+ index \* 131 \+ salt/);
+  assert.match(script, /randomValue\(37\) \* duration/);
+  for (const variable of ["--wb-drift-a", "--wb-drift-b", "--wb-drift-c", "--wb-drift-end", "--wb-spin-end"]) {
+    assert.match(script, new RegExp(variable));
+  }
   assert.doesNotMatch(script, /data-setting="header-text"|data-setting="header-align"|data-setting="header-size"/);
   assert.doesNotMatch(script, /data-action="header-image"|data-action="header-image-clear"/);
   assert.doesNotMatch(script, /headerOverlay|headerText|headerImage|HEADER_ID|wb-skin-lab-header-overlay/);
@@ -177,8 +183,12 @@ test("CSS 使用 WorkBuddy 稳定锚点", () => {
   assert.match(css, /data-weather="custom"/);
   assert.match(css, /wb-rain-fall/);
   assert.match(css, /wb-snow-fall/);
-  assert.match(css, /wb-particle-rise/);
+  assert.match(css, /wb-heart-rise/);
   assert.match(css, /wb-star-fall/);
+  assert.match(css, /wb-custom-float/);
+  assert.match(css, /translate3d\(var\(--wb-drift-a\),18vh/);
+  assert.match(css, /translate3d\(var\(--wb-drift-b\),58vh/);
+  assert.match(css, /translate3d\(var\(--wb-drift-c\),78vh/);
   assert.match(css, /wb-thunder-flash/);
   assert.match(css, /prefers-reduced-motion:\s*reduce/);
   assert.doesNotMatch(css, /wb-skin-lab-header-overlay|--wb-header-top|data-header-/);

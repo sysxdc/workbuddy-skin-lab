@@ -1,8 +1,8 @@
-# WorkBuddy Skin Lab v1.4.0：小白安装使用教程
+# WorkBuddy Skin Lab v1.4.1：小白安装使用教程
 
 这是一份讲“下载、解压、检查、启动、换背景、粒子特效和恢复”的图文教程。照着做，不需要懂代码。
 
-> v1.4.0 只扩展背景和粒子层：不替换 WorkBuddy 的文字、图标、卡片、宠物或其它组件，避免 WorkBuddy 更新后出现错位和内容丢失。
+> v1.4.1 只扩展背景和粒子层：不替换 WorkBuddy 的文字、图标、卡片、宠物或其它组件，避免 WorkBuddy 更新后出现错位和内容丢失。
 
 ## 一、先准备好
 
@@ -16,10 +16,10 @@
 
 ## 二、下载正确的 Windows 发布包
 
-打开 [v1.4.0 发布页](https://github.com/sysxdc/workbuddy-skin-lab/releases/tag/v1.4.0)，下载：
+打开 [v1.4.1 发布页](https://github.com/sysxdc/workbuddy-skin-lab/releases/tag/v1.4.1)，下载：
 
 ```text
-WorkBuddy-Skin-Lab-1.4.0-Windows.zip
+WorkBuddy-Skin-Lab-1.4.1-Windows.zip
 ```
 
 第一次安装只需要 `Windows.zip`。名称带 `Skill.zip` 的文件用于可选的 AI 生成背景功能，不是普通换背景的必需文件。
@@ -110,6 +110,8 @@ WorkBuddy 安装在 `D:\WorkBuddy\WorkBuddy.exe` 时会自动识别。其它自�
 
 粒子位于背景层，不接收点击，不会遮挡 WorkBuddy 的按钮、输入框和弹窗。Windows 开启“减少动态效果”时，动画会自动停止。设置按主题保存，“重置本主题”会清除该主题的粒子设置。
 
+不同粒子有各自的自然轨迹：雪花左右飘落，爱心摇摆上浮，星星闪烁下落，自定义符号自由漂浮。粒子位置、延迟和漂移会独立打散，不会再排成规则斜线。
+
 ## 九、恢复原生界面
 
 双击 `恢复原生.bat`，或在 `🎨 → 恢复与重置` 中选择“恢复原生界面”。
@@ -138,7 +140,7 @@ WorkBuddy 安装在 `D:\WorkBuddy\WorkBuddy.exe` 时会自动识别。其它自�
 
 ### 旧主题中的宠物、文字或装饰不见了
 
-这是 v1.4.0 的预期行为。旧功能依赖 WorkBuddy 内部页面结构，更新后无法可靠对齐，已经移除。旧主题的背景仍可使用。
+这是 v1.4.1 的预期行为。旧功能依赖 WorkBuddy 内部页面结构，更新后无法可靠对齐，已经移除。旧主题的背景仍可使用。
 
 ### 为什么没有顶部图案或顶部文字
 
