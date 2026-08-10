@@ -1,212 +1,112 @@
-# 一键定制专属于你的 WorkBuddy 皮肤
+# 我把 WorkBuddy 做成了一个可以长期陪伴的工作台
 
-> WorkBuddy Skin Lab v1.4.1
+> WorkBuddy Skin Lab v1.5.3 · 背景、粒子与 AI 透明 PNG 素材
 
-不是简单换一张壁纸，而是让每天打开的工作台，真正变成你喜欢的样子。
+每天打开 WorkBuddy，面对的往往不是一个冷冰冰的窗口，而是一天里停留时间很长的工作台。
 
-**5 套主题实机展示 · 6 种粒子氛围 · 一键应用 · 随时恢复**
+所以我做了 **WorkBuddy Skin Lab**：不去重绘原来的功能，不往界面塞容易失效的装饰组件，只把背景和环境粒子放在一个稳定、可恢复的背景层里。你可以换成自己喜欢的画面，也可以让雪花、樱花、星星或 AI 生成的小素材，在不打扰工作的前提下轻轻动起来。
 
-[![点击查看 WorkBuddy Skin Lab 实机效果视频](assets/workbuddy-skin-demo-poster.png)](assets/workbuddy-skin-demo-v1.4.1-private.mp4)
+> 本文使用的演示图不包含聊天记录、账号信息和本机路径。为了保护使用者隐私，本文不引用私人演示视频。
 
-> 点击封面图查看实机效果视频。GitHub 无法直接播放时，可打开视频文件后下载查看。
+## 先给你看三件我最在意的事
 
-## 先选择适合你的使用路线
+### 1. 好看，但不抢工作内容
 
-- **AI 一句话生成主题**：安装 `NoneLinear-Image` 和 `WorkBuddy-Skin-Lab` 两个 Skill，并提前配置图片生成服务。适合想从文字描述直接得到背景的读者。
-- **直接使用本地图片**：只下载 Windows 工具包，不需要图片生成服务。适合已经准备好背景图的读者。
+背景会避开侧边栏与主要输入区；粒子固定在背景层，不接收点击，不会挡住按钮、输入框和弹窗。你可以让氛围存在，但不必为氛围牺牲可读性。
 
-正式文件均来自 [WorkBuddy Skin Lab v1.4.1 Release](https://github.com/sysxdc/workbuddy-skin-lab/releases/tag/v1.4.1)。
+![极光实验室主题示意](https://raw.githubusercontent.com/sysxdc/workbuddy-skin-lab/main/docs/assets/theme-showcase/aurora-lab.png)
 
-## 先看效果：同一个 WorkBuddy，五种完全不同的氛围
+### 2. 不再依赖容易变动的界面结构
 
-从二次元、科技感到治愈系和春日系，背景、明暗与阅读保护会一起适配。下面均为 WorkBuddy 实机切换后的效果。
+以前一些更“花哨”的标题、卡片、宠物和文字模块，会跟着 WorkBuddy 的内部界面变化而错位。现在我把边界收紧：只保留背景和粒子层。这样 WorkBuddy 更新时，至少不会再让你认真保存过的图片和文字忽然消失。
 
-### 二次元纸海
+### 3. AI 粒子可以留下来，不是一次性效果
 
-![二次元纸海主题的 WorkBuddy 实机效果](assets/theme-showcase/paper-sea.png)
+v1.5.3 开始，AI 生成的透明 PNG 粒子会建立为**新的本机派生主题**。三张候选素材、你选中的那张、运动轨迹和面板微调都会一起保存。点击“保存当前主题（下次启动）”后，重启 WorkBuddy 仍然能继续用。
 
-报纸纹理与角色画面结合，深色工作台更有沉浸感。
+这一次，AI 生成的图不会再被错误塞进“手输符号（文字）”。想用 AI 粒子时，请在 `🎨 → 环境粒子特效` 中选择 **AI 透明 PNG 素材**。
 
-### 极光实验室
+## 你可以怎么玩
 
-![极光实验室主题的 WorkBuddy 实机效果](assets/theme-showcase/aurora-lab.png)
+内置粒子有：下雨、雷雨、下雪、冒爱心、下星星和手输符号。
 
-紫蓝极光搭配星光粒子，简洁又有科技感。
+AI 透明 PNG 粒子则适合做得更有个人感：樱花花瓣、萤火虫、纸飞机、咖啡蒸汽、像素星尘……AI 只负责生成静态透明 PNG；真正的动效由本地安全配方完成，不能执行任意代码。
 
-### 居家陪伴
+你可以在面板里微调：
 
-![居家陪伴主题的 WorkBuddy 实机效果](assets/theme-showcase/home-companion.png)
+- 轨迹：飘落、上浮、漂浮、横向掠过；
+- 速度与摆动；
+- 旋转与缩放起伏；
+- 透明度与闪烁；
+- 粒子强度和颜色。
 
-柔和自然光与猫咪，让工作界面多一点治愈感。
+雪花会左右飘落，爱心会摇摆上浮，星星会闪烁下落；每颗粒子的起点、延迟和路径都会打散，不会再排成整齐的斜线。
 
-### 暮色纸灯
+## 两条使用路线，选适合你的那条
 
-![暮色纸灯主题的 WorkBuddy 实机效果](assets/theme-showcase/twilight-lamp.png)
+| 你想做什么 | 需要什么 |
+|---|---|
+| 只想换背景、加内置粒子 | Windows 工具包即可 |
+| 想让 AI 生成背景或透明 PNG 粒子 | 再安装 WorkBuddy Skin Lab Skill 与 NoneLinear Image Skill |
 
-暖色桌面和落日氛围，适合安静专注的夜晚。
+不想碰 AI 也完全没关系。直接上传自己的背景图，就能享受安全区、阅读层和内置粒子。
 
-### 樱庭协奏
+## 普通用户：三步开始
 
-![樱庭协奏主题的 WorkBuddy 实机效果](assets/theme-showcase/sakura-courtyard.png)
+### 第一步：下载并完整解压
 
-明亮樱花庭院，让工作台瞬间拥有春日气息。
-
-你只需要选一张喜欢的背景，再点几下设置，就能做出完全不同的工作氛围。
-
-> 不改安装文件，不替换原生按钮和文字。只扩展背景与粒子层，想恢复时也能一键回到原样。
-
-## 1. 为什么说是一键定制？
-
-- **一句话生成主题**：说出喜欢的角色与氛围，让两个 Skill 协作生成并整理成主题。
-- **随心换背景**：也可以直接上传 PNG、JPEG、WebP、GIF 或 SVG 等本地图片。
-- **六种粒子效果**：雨、雷雨、雪花、爱心、星星和自定义符号都有不同的运动轨迹。
-- **不干扰操作**：粒子只在背景层显示，不接收点击，不挡按钮、输入框和弹窗。
-
-### 六种氛围，一键切换
-
-| 🌧 下雨 | ⛈ 雷雨 | ❄ 下雪 |
-|---|---|---|
-| ♥ 爱心 | ★ 星星 | ✨ 自定义 |
-
-## 2. 实战：一句话生成宇智波鼬主题
-
-下面不讲抽象概念，直接从零做一套暗红月夜、乌鸦与细雨氛围的宇智波鼬皮肤。整个过程都在 WorkBuddy 里完成。
-
-开始前请确认：
-
-- WorkBuddy 桌面端能够正常打开；
-- 已从 [v1.4.1 Release](https://github.com/sysxdc/workbuddy-skin-lab/releases/tag/v1.4.1) 下载两个 Skill ZIP；
-- 图片生成服务已按 [NoneLinear 配置说明](../references/NONELINEAR_SETUP.md) 完成设置。
-
-### 第一步：先导入两个 Skill
-
-进入 WorkBuddy 的“技能”页面，点击右上角“添加技能”，依次选择下面两个 ZIP 文件导入。不要解压 Skill ZIP：
-
-1. `NoneLinear-Image-0.1.0-Skill.zip`：负责生成背景候选图；
-2. `WorkBuddy-Skin-Lab-1.4.1-Skill.zip`：负责把图片整理成可应用的 WorkBuddy 主题。
-
-![在 WorkBuddy 中选择 ZIP 文件导入 Skill](assets/itachi-tutorial/01-import-skill.png)
-
-每次选择一个 ZIP，完成后再导入第二个。导入完成后，在“我安装的”中确认两个 Skill 都已出现。
-
-### 第二步：新建任务，输入一句话
-
-同时调用两个 Skill，并描述角色、色调、画面元素和人物位置。可以直接复制下面这段：
+打开 [v1.5.3 Release](https://github.com/sysxdc/workbuddy-skin-lab/releases/tag/v1.5.3)，下载：
 
 ```text
-@nonelinear-image @workbuddy-skin-lab 帮我制作一张宇智波鼬主题的 WorkBuddy 背景图并应用：暗红月夜、乌鸦与细雨，人物放在画面右侧，左侧留出低细节操作区，整体深色、16:9。
+WorkBuddy-Skin-Lab-1.5.3-Windows.zip
 ```
 
-![在 WorkBuddy 新任务中调用两个 Skill 并输入宇智波鼬背景需求](assets/itachi-tutorial/02-enter-prompt.png)
-
-看到两个 Skill 标签都出现在消息前方，再发送任务。
-
-### 第三步：阅读确认信息，再开始生成
-
-WorkBuddy 会先检查环境，并说明候选图数量、尺寸和图片服务调用次数。先核对调用次数、模型和尺寸；确认符合预期后，再选择“确认，开始生成”。
-
-![WorkBuddy 展示三张宇智波鼬背景候选图的生成确认卡片](assets/itachi-tutorial/03-confirm-generate.png)
-
-示例生成 3 张 2048×1152 候选图；实际内容以你的确认卡片为准。
-
-### 第四步：选择喜欢的候选图并应用
-
-生成完成后选择最满意的一张。WorkBuddy 会自动整理主题配色、人物焦点和左侧安全区，并给出主题应用脚本。不同电脑生成的脚本名称和保存位置可能不同，以当前任务中的实际提示为准。
-
-![保存任务并运行 WorkBuddy 生成的宇智波鼬主题应用脚本](assets/itachi-tutorial/04-apply-theme.png)
-
-先保存当前任务，再按提示运行脚本；脚本位置会因电脑而不同。
-
-### 第五步：宇智波鼬皮肤已经生效
-
-WorkBuddy 重启后，背景、深色配色、左侧操作安全区和雨滴效果会一起出现。右上角 `🎨` 仍可继续切换候选图、调整粒子强度或恢复原生界面。
-
-![宇智波鼬暗红月夜 WorkBuddy 主题最终实机效果](assets/itachi-tutorial/05-final-result.png)
-
-实机效果：人物位于右侧，主要操作区域保持清晰。
-
-> 同样的方法，把“宇智波鼬”换成喜欢的角色、城市、季节或画风，就能继续生成属于自己的主题。
-
-## 3. Windows 工具包安装教程
-
-如果你不需要 AI 生成，只想直接上传自己的本地图片，安装 Windows 工具包即可。准备好 Windows 10/11、WorkBuddy 桌面端，以及 Node.js 22 或更高版本，照着下面做。
-
-**领取工具包 → 完整解压 → 环境检查 → 开始使用**
-
-### 第一步：领取工具包，下载正确的文件
-
-关注公众号“大模型评测及优化Nonelinear”后，私信关键词“皮肤”。收到工具包后，普通用户只需要选择文件名以 `Windows.zip` 结尾的压缩包；也可以直接前往 [v1.4.1 Release](https://github.com/sysxdc/workbuddy-skin-lab/releases/tag/v1.4.1) 下载。
-
-![发布文件列表中选中 WorkBuddy-Skin-Lab-1.4.1-Windows.zip](assets/wechat-01-download-windows-package.png)
-
-认准：`WorkBuddy-Skin-Lab-1.4.1-Windows.zip`
-
-| 文件 | 用途 |
-|---|---|
-| `Windows.zip` | 普通用户下载，包含换背景和粒子效果所需文件 |
-| `Skill.zip` | 用于可选的 AI 生成背景，第一次安装可以不下载 |
-| `SHA256SUMS` | 用于高级用户校验文件完整性，不是安装程序 |
-
-### 第二步：右键“全部解压缩”
-
-不要直接在 ZIP 压缩包里双击文件。完整解压后进入新文件夹，确认能看到：
+不要在压缩包里直接运行。完整解压后，确认文件夹中有：
 
 - `环境检查.bat`
 - `开始使用.bat`
 - `恢复原生.bat`
 
-![WorkBuddy Skin Lab 完整解压后的文件目录](assets/wechat-02-extracted-folder.png)
+![解压后的工具目录示例](https://raw.githubusercontent.com/sysxdc/workbuddy-skin-lab/main/docs/assets/wechat-02-extracted-folder.png)
 
-文件数量可能随版本变化，三个入口存在即可。
+### 第二步：检查环境
 
-> 如果 Windows 阻止运行：右键下载的 ZIP → 属性 → 勾选“解除锁定”，再重新解压。
+双击 `环境检查.bat`。它会检查 Node.js、WorkBuddy 路径和主题文件。看到 `[OK]` 后再继续。
 
-### 第三步：双击“环境检查.bat”
+### 第三步：开始使用
 
-检查会确认 Node.js 版本、WorkBuddy 安装位置和主题文件是否正常。看到最后一行绿色 OK 即可继续。
+先保存 WorkBuddy 中正在编辑的任务，再双击 `开始使用.bat`。WorkBuddy 可能会短暂重启；重新打开后，点击右上角 `🎨`，从换背景和轻量粒子开始就好。
 
-```text
-=== WorkBuddy Skin Lab Environment Check ===
-Node.js: v22+
-WorkBuddy: detected
-[OK] Environment and themes are ready.
-```
+不喜欢时，双击 `恢复原生.bat`，即可回到原来的界面。工具不会修改 WorkBuddy 的安装文件。
 
-- 没有 Node.js：先安装 Node.js 22 或更高版本。
-- 找不到 WorkBuddy：先确认桌面端可以正常打开。
+## 想试试 AI 粒子？复制这段提示词
 
-### 第四步：保存任务，再双击“开始使用.bat”
-
-工具可能会短暂关闭并重新打开 WorkBuddy。等窗口恢复后，右上角出现 `🎨` 按钮，就说明皮肤已应用。
-
-> 首次运行前先保存正在编辑的内容，避免 WorkBuddy 重启时丢失未保存状态。
-
-### 第五步：在 🎨 面板里调整效果
-
-先选择背景，再调整背景安全区、任务页背景和回答阅读层。最后按喜好开启雨、雷雨、雪、爱心、星星或自定义粒子。
-
-第一次使用推荐：
+先从 v1.5.3 Release 安装：
 
 ```text
-自动匹配图片
-+ 左侧安全区
-+ 任务页柔和保留
-+ 回答阅读层开启
-+ 轻量雪花
+WorkBuddy-Skin-Lab-1.5.3-Skill.zip
+NoneLinear-Image-0.1.0-Skill.zip
 ```
 
-### 第六步：不喜欢？随时恢复原生
+然后在 WorkBuddy 新任务中同时启用两个 Skill，复制：
 
-双击“恢复原生.bat”，或在 `🎨` 面板中选择“恢复原生界面”。它只移除当前显示效果，不修改 WorkBuddy 安装文件。
+```text
+@nonelinear-image @workbuddy-skin-lab
+为我当前的 WorkBuddy 主题生成 AI 透明 PNG 粒子：淡粉色樱花花瓣，主体居中，透明背景，无文字、无 Logo、无水印；轨迹是随风缓慢飘落，轻微左右摆动，偶尔旋转，不闪烁。生成 3 张候选，选中后保存为可在下次启动继续使用的主题。
+```
 
-## 领取工具包
+确认三次图片生成调用后，选一张最喜欢的候选图。最后在 `🎨 → 环境粒子特效` 中选择 **AI 透明 PNG 素材**，再点击 **保存当前主题（下次启动）**。之后重启也能继续使用。
 
-关注公众号“大模型评测及优化Nonelinear”：
+## 我想把这个工具交给愿意慢慢玩的人
 
-![公众号大模型评测及优化Nonelinear账号信息](assets/wechat-public-account-nonlinear.png)
+WorkBuddy Skin Lab 是一个社区工具，不属于 WorkBuddy 或腾讯官方。它只在本机临时叠加背景和粒子，不上传你的主题，也不需要把个人图片放到 GitHub。
 
-关注后发送私信关键词：**皮肤**
+如果你也想把每天打开的工作台，变成更有一点陪伴感的地方：
 
-即可获得 WorkBuddy Skin Lab v1.4.1 工具包与小白安装教程。
+1. 关注公众号 **大模型评测及优化Nonelinear**；
+2. 私信回复：**皮肤**；
+3. 获取工具包和最新小白教程。
 
-建议先收藏本文，安装时按步骤逐项操作。
+![公众号：大模型评测及优化Nonelinear](https://raw.githubusercontent.com/sysxdc/workbuddy-skin-lab/main/docs/assets/wechat-public-account-nonlinear.png)
+
+你可以先从一张喜欢的背景开始。等你愿意，再给它加一场雨、一点星光，或者一片只属于自己的 AI 樱花。

@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>把 WorkBuddy 变成可以长期陪伴的工作台｜WorkBuddy Skin Lab v1.5.3</title>
+  <style>
+    :root { --ink: #1f2937; --muted: #64748b; --brand: #6d5ce8; --warm: #fff8ed; --line: #e8e7ef; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f5f6fa; color: var(--ink); font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; line-height: 1.78; }
+    main { width: min(100%, 760px); margin: 0 auto; background: #fff; padding-bottom: 52px; }
+    .hero { padding: 56px 34px 40px; color: #fff; background: radial-gradient(circle at 88% 0%, #a98cff 0, transparent 35%), linear-gradient(135deg, #111a3a, #412f86 56%, #7569d8); }
+    .badge { display: inline-block; padding: 5px 12px; border: 1px solid rgba(255,255,255,.38); border-radius: 999px; font-size: 13px; letter-spacing: .06em; }
+    h1 { margin: 18px 0 10px; font-size: clamp(30px, 7vw, 46px); line-height: 1.2; }
+    .hero p { margin: 0; color: rgba(255,255,255,.86); font-size: 17px; }
+    article { padding: 10px 34px; }
+    h2 { margin: 46px 0 16px; padding-left: 14px; border-left: 4px solid var(--brand); font-size: 25px; line-height: 1.35; }
+    h3 { margin: 28px 0 10px; font-size: 19px; }
+    p, li { font-size: 16px; }
+    .lead { margin: 28px 0; font-size: 18px; color: #374151; }
+    .notice, .cta { margin: 26px 0; padding: 18px 20px; border-radius: 16px; }
+    .notice { background: #f3f0ff; color: #453b8b; }
+    .cta { background: linear-gradient(135deg, #fff5e4, #fffaf2); border: 1px solid #fde1ad; }
+    figure { margin: 26px 0; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: #f8fafc; }
+    figure img { display: block; width: 100%; height: auto; }
+    figcaption { padding: 9px 13px; color: var(--muted); font-size: 13px; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px; margin: 20px 0; }
+    .card { padding: 17px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+    .card strong { display: block; color: #342b78; }
+    table { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 15px; }
+    th, td { padding: 12px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { background: #f8f7ff; }
+    code, pre { font-family: Consolas, "Cascadia Code", monospace; }
+    pre { overflow-x: auto; padding: 16px; border-radius: 14px; background: #182033; color: #e5edff; line-height: 1.65; font-size: 13px; white-space: pre-wrap; }
+    a { color: #5e4dce; font-weight: 700; text-decoration: none; }
+    .steps { padding-left: 22px; }
+    .steps li { margin: 10px 0; }
+    .fine { color: var(--muted); font-size: 13px; }
+    @media (max-width: 560px) { .hero, article { padding-left: 20px; padding-right: 20px; } .grid { grid-template-columns: 1fr; } h2 { font-size: 22px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="hero">
+      <span class="badge">WORKBUDDY SKIN LAB · v1.5.3</span>
+      <h1>把 WorkBuddy 变成一个可以长期陪伴的工作台</h1>
+      <p>背景、自然粒子与 AI 透明 PNG 素材，留一点氛围，也留住工作时的清晰和专注。</p>
+    </header>
+
+    <article>
+      <p class="lead">我做这个小工具，不是为了把 WorkBuddy 改得面目全非，而是希望你每天打开它时，能看到一张喜欢的背景，和一点不打扰工作的氛围。</p>
+
+      <p class="fine">本文使用的演示图不包含聊天记录、账号信息和本机路径。为了保护使用者隐私，本文不引用私人演示视频。</p>
+
+      <div class="notice">WorkBuddy Skin Lab 只在本机临时叠加背景与粒子，不修改 WorkBuddy 安装文件。我也主动移除了那些依赖私有页面结构的标题、卡片、宠物和文字模块，让已保存的主题能更稳定地陪你使用。</div>
+
+      <h2>我最在意的，不只是“好看”</h2>
+      <div class="grid">
+        <div class="card"><strong>不挡操作</strong>背景会避开主要操作区；粒子在背景层，不接收点击，不会挡输入框、按钮或弹窗。</div>
+        <div class="card"><strong>不怕更新</strong>不再把视觉内容挂到容易变化的 WorkBuddy 私有组件上，减少更新后错位或丢失的风险。</div>
+        <div class="card"><strong>可以恢复</strong>不喜欢就恢复原生界面；你做好的主题仍会保存在本机，不会被删除。</div>
+        <div class="card"><strong>可以留下来</strong>AI 透明 PNG 粒子会存进派生主题。保存当前主题后，重启也会自动恢复。</div>
+      </div>
+
+      <figure>
+        <img src="https://raw.githubusercontent.com/sysxdc/workbuddy-skin-lab/main/docs/assets/theme-showcase/aurora-lab.png" alt="极光实验室主题的 WorkBuddy 界面示意">
+        <figcaption>一张背景，加一点克制的粒子，就能让工作台有自己的气质。</figcaption>
+      </figure>
+
+      <h2>粒子不止是 emoji，也可以是你自己的素材</h2>
+      <p>内置的下雨、雷雨、下雪、爱心、星星和手输符号，打开就能用。想做得更有个人感时，还可以让 AI 生成静态透明 PNG：樱花花瓣、萤火虫、纸飞机、咖啡蒸汽、像素星尘……</p>
+      <p>AI 只生成透明 PNG；它不会生成或执行任何动画代码。动起来这件事，由本地受控的运动配方完成：飘落、上浮、漂浮或横向掠过，并可在 `🎨 → 环境粒子特效` 中调整速度、摆动、旋转、缩放起伏和闪烁。</p>
+      <div class="notice"><strong>一个很重要的小提示：</strong>“手输符号（文字）”与“AI 透明 PNG 素材”是两条独立功能。AI 生成完成后，请在粒子类型中选择 <strong>AI 透明 PNG 素材</strong>，再保存当前主题；这样重启 WorkBuddy 后也会继续使用它。</div>
+
+      <h2>普通用户，三步就够了</h2>
+      <ol class="steps">
+        <li>打开 <a href="https://github.com/sysxdc/workbuddy-skin-lab/releases/tag/v1.5.3">v1.5.3 Release</a>，下载 <code>WorkBuddy-Skin-Lab-1.5.3-Windows.zip</code>。</li>
+        <li>完整解压后，双击 <code>环境检查.bat</code>；通过检查后，先保存 WorkBuddy 正在编辑的内容。</li>
+        <li>双击 <code>开始使用.bat</code>。WorkBuddy 重新打开后，点击右上角 <code>🎨</code>，从换背景和轻量粒子开始即可。</li>
+      </ol>
+
+      <figure>
+        <img src="https://raw.githubusercontent.com/sysxdc/workbuddy-skin-lab/main/docs/assets/wechat-02-extracted-folder.png" alt="解压后的 WorkBuddy Skin Lab 工具目录">
+        <figcaption>完整解压后，认准：环境检查、开始使用、恢复原生三个入口。</figcaption>
+      </figure>
+
+      <table>
+        <thead><tr><th>你想做什么</th><th>需要什么</th></tr></thead>
+        <tbody>
+          <tr><td>换背景、使用内置粒子</td><td>Windows 工具包即可</td></tr>
+          <tr><td>让 AI 生成背景或透明 PNG 粒子</td><td>再安装 WorkBuddy Skin Lab Skill 与 NoneLinear Image Skill</td></tr>
+        </tbody>
+      </table>
+
+      <h2>想试试 AI 樱花？复制这段提示词</h2>
+      <p>先安装同一 Release 中的 <code>WorkBuddy-Skin-Lab-1.5.3-Skill.zip</code> 和 <code>NoneLinear-Image-0.1.0-Skill.zip</code>，并完成图片服务配置。然后在 WorkBuddy 新任务中同时启用两个 Skill：</p>
+      <pre>@nonelinear-image @workbuddy-skin-lab
+为我当前的 WorkBuddy 主题生成 AI 透明 PNG 粒子：淡粉色樱花花瓣，主体居中，透明背景，无文字、无 Logo、无水印；轨迹是随风缓慢飘落，轻微左右摆动，偶尔旋转，不闪烁。生成 3 张候选，选中后保存为可在下次启动继续使用的主题。</pre>
+      <p>确认三次图片生成调用后，选一张喜欢的候选图。最后在 <code>🎨 → 环境粒子特效</code> 中选择 <strong>AI 透明 PNG 素材</strong>，再点击 <strong>保存当前主题（下次启动）</strong>。这套背景、粒子和轨迹设置会在当前电脑的主题目录中永久保留。</p>
+
+      <h2>我想把这份小小的氛围感交给你</h2>
+      <div class="cta">
+        <p><strong>关注公众号：大模型评测及优化Nonelinear</strong></p>
+        <p>私信回复：<strong>皮肤</strong></p>
+        <p>即可获得工具包与小白使用教程。你可以先换一张背景；等你愿意，再让它下一场雨、飘一点星光，或留下一片专属于自己的 AI 樱花。</p>
+      </div>
+
+      <figure>
+        <img src="https://raw.githubusercontent.com/sysxdc/workbuddy-skin-lab/main/docs/assets/wechat-public-account-nonlinear.png" alt="公众号大模型评测及优化Nonelinear">
+        <figcaption>关注后私信“皮肤”。</figcaption>
+      </figure>
+
+      <p class="fine">社区工具，与 WorkBuddy、腾讯均无隶属关系。请勿提交 API Key、私人截图或个人主题到 GitHub；使用 AI 图片服务前，请自行确认其隐私规则与素材版权。</p>
+    </article>
+  </main>
+</body>
+</html>
