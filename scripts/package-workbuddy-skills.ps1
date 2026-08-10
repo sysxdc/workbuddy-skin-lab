@@ -41,6 +41,9 @@ try {
   foreach ($directory in @('docs','references','src','themes')) {
     Copy-Item -LiteralPath (Join-Path $repositoryRoot $directory) -Destination $skinStage -Recurse
   }
+  # 不把本机公众号草稿混入可导入 Skill。
+  Get-ChildItem -LiteralPath (Join-Path $skinStage 'docs') -File -Filter 'WECHAT_ARTICLE_*' -ErrorAction SilentlyContinue |
+    Remove-Item -Force
   $skinScripts = Join-Path $skinStage 'scripts'
   New-Item -ItemType Directory -Force -Path $skinScripts | Out-Null
   foreach ($file in @('theme-generation-job.mjs','run-nonelinear-image.mjs','upload-reference.py','normalize-generated-image.py')) {

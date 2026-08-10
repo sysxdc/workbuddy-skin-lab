@@ -76,6 +76,22 @@ test("旧主题获得兼容的画面布局默认值", () => {
   const theme = validateThemeManifest({ schemaVersion: 1, id: "legacy", name: "Legacy", background: "background.webp" });
   assert.deepEqual(theme.art, { focusX: 0.5, focusY: 0.5, safeArea: "auto", taskMode: "auto" });
   assert.equal(theme.ui.appearance, "auto");
+  assert.deepEqual(theme.particles.assets, []);
+  assert.equal(theme.particles.defaultAssetId, null);
+});
+
+test("规范化受限的透明粒子素材与运动配方", () => {
+  const base = { schemaVersion: 1, id: "particle-theme", name: "Particles", background: "background.webp" };
+  const theme = validateThemeManifest({ ...base, particles: {
+    assets: [1, 2, 3].map((number) => ({ id: `particle-${number}`, label: `粒子${number}`, asset: `particles/particle-${number}.png` })),
+    defaultAssetId: "particle-2", defaultMotion: { type: "fall", duration: 14, sway: 120, rotation: 240, pulse: 0.2, opacity: 0.8, twinkle: true },
+  } });
+  assert.equal(theme.particles.assets.length, 3);
+  assert.equal(theme.particles.defaultAssetId, "particle-2");
+  assert.equal(theme.particles.defaultMotion.type, "fall");
+  assert.throws(() => validateThemeManifest({ ...base, particles: { assets: [{ id: "particle-1", label: "x", asset: "assets/particle-1.png" }] } }), /particles\/particle-1\.png/);
+  assert.throws(() => validateThemeManifest({ ...base, particles: { assets: [{ id: "particle-1", label: "x", asset: "particles/particle-1.gif" }] } }), /particles\/particle-1\.png/);
+  assert.throws(() => validateThemeManifest({ ...base, particles: { assets: [{ id: "particle-1", label: "x", asset: "particles/particle-1.png" }], defaultMotion: { duration: 31 } } }), /duration/);
 });
 
 test("拒绝无效的画面焦点、安全区和任务模式", () => {
