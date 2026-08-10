@@ -286,7 +286,9 @@ function runtimeMain(payload) {
     const particleAssets = Array.isArray(themeParticles.assets) ? themeParticles.assets : [];
     const selectedAssetId = particleAssets.some((asset) => asset.id === custom.particleAssetId) ? custom.particleAssetId : themeParticles.defaultAssetId;
     const selectedAsset = particleAssets.find((asset) => asset.id === selectedAssetId) || null;
-    let weather = ["none", "rain", "thunder", "snow", "hearts", "stars", "custom", "asset"].includes(custom.weather) ? custom.weather : "none";
+    const hasWeatherOverride = Object.hasOwn(custom, "weather");
+    let weather = hasWeatherOverride && ["none", "rain", "thunder", "snow", "hearts", "stars", "custom", "asset"].includes(custom.weather)
+      ? custom.weather : particleAssets.length ? "asset" : "none";
     if (weather === "asset" && !selectedAsset) weather = "none";
     const intensity = ["low", "medium", "high"].includes(custom.weatherIntensity) ? custom.weatherIntensity : "medium";
     const speed = ["slow", "normal", "fast"].includes(custom.effectSpeed) ? custom.effectSpeed : "normal";
@@ -574,11 +576,12 @@ function runtimeMain(payload) {
         <label>回答阅读层<select data-setting="readability"><option value="on">显示（更清晰）</option><option value="off">关闭（背景通透）</option></select></label>
       </div></details>
       <details><summary>环境粒子特效</summary><div class="wb-panel-group">
-        <label>粒子特效<select data-setting="weather"><option value="none">关闭</option><option value="rain">下雨</option><option value="thunder">雷雨</option><option value="snow">下雪</option><option value="hearts">冒爱心</option><option value="stars">下星星</option><option value="custom">自定义符号</option><option value="asset">AI 自定义素材</option></select></label>
+        <label>粒子特效<select data-setting="weather"><option value="none">关闭</option><option value="rain">下雨</option><option value="thunder">雷雨</option><option value="snow">下雪</option><option value="hearts">冒爱心</option><option value="stars">下星星</option><option value="custom">手输符号（文字）</option><option value="asset">AI 透明 PNG 素材</option></select></label>
         <label>粒子强度<select data-setting="weather-intensity"><option value="low">轻</option><option value="medium">中</option><option value="high">强</option></select></label>
         <label>粒子速度<select data-setting="effect-speed"><option value="slow">慢</option><option value="normal">正常</option><option value="fast">快</option></select></label>
         <label>粒子颜色<input data-setting="effect-color" type="color" value="#FFFFFF"></label>
-        <label>自定义符号<input data-setting="particle-symbol" maxlength="4" placeholder="例如：🌸"></label>
+        <label>手输符号（文字）<input data-setting="particle-symbol" maxlength="4" placeholder="例如：🌸"></label>
+        <small data-particle-symbol-status>这里只接受 1–2 个键盘文字/Emoji；AI 图片素材不应填写在这里。</small>
         <div data-particle-assets hidden></div>
         <small data-particle-assets-status></small>
         <label>素材轨迹<select data-setting="particle-motion"><option value="fall">飘落</option><option value="rise">上浮</option><option value="float">漂浮</option><option value="sweep">横向掠过</option></select></label>

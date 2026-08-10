@@ -16,6 +16,8 @@ test("Release Skill 只执行背景与受限粒子工作流", async () => {
   assert.match(skill, /run-backgrounds/);
   assert.match(skill, /run-particles/);
   assert.match(skill, /透明 PNG/);
+  assert.match(skill, /不得写入 `particleSymbol`/);
+  assert.match(skill, /不得选择 `custom`/);
   assert.doesNotMatch(skill, /一个前台 `run-derived`|五张模块|三套文案/);
   assert.match(tutorial, /在 WorkBuddy 新建任务/);
   assert.ok(tutorial.includes(`WorkBuddy-Skin-Lab-${version}-Skill.zip`));
@@ -24,5 +26,5 @@ test("Release Skill 只执行背景与受限粒子工作流", async () => {
   assert.match(setup, /NoneLinear-Image-0\.1\.0-Skill\.zip/);
   assert.match(packager, /Compress-Archive/);
   assert.match(packager, /CODEBUDDY_SKILL_DIR/);
-  assert.equal(version, "1.5.1");
+  assert.equal(version, "1.5.2");
 });

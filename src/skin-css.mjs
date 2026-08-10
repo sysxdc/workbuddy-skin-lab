@@ -459,6 +459,6 @@ html[data-workbuddy-skin-lab] [role="dialog"] { border-radius: var(--wb-radius) 
   #wb-skin-lab-panel [data-particle-assets] button { min-width:0; padding:4px; aspect-ratio:1; }
   #wb-skin-lab-panel [data-particle-assets] button[data-active="true"] { outline:2px solid var(--wb-accent); }
   #wb-skin-lab-panel [data-particle-assets] img { display:block; width:100%; height:100%; object-fit:contain; }
-  #wb-skin-lab-panel [data-particle-assets-status] { color:color-mix(in srgb,var(--wb-text) 68%,transparent); font-size:12px; line-height:1.5; }
+  #wb-skin-lab-panel [data-particle-assets-status], #wb-skin-lab-panel [data-particle-symbol-status] { color:color-mix(in srgb,var(--wb-text) 68%,transparent); font-size:12px; line-height:1.5; }
 `;
 }

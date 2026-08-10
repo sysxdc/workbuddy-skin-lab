@@ -37,11 +37,13 @@ allowed-tools: Read, Write, Bash
 
 用户要求自定义粒子时，先确认当前主题目录与以下两项描述：粒子素材描述、运动描述。运动描述只能映射为安全配方，不得输出 CSS、JavaScript 或关键帧文本。
 
+AI 粒子素材与面板中的“手输符号（文字）”是两条完全独立的路径：后者只允许 1–2 个 Unicode 字符，绝不能接收、表示或代替 AI 图片。只要用户说“AI 生成”“图片粒子”“透明 PNG”或描述视觉素材，必须走下方 `particle-v1` 流程；不得写入 `particleSymbol`，不得选择 `custom`，不得要求用户把图片粘贴进符号输入框。
+
 1. 用 `particle-init --source-theme <当前主题目录> --prompt-file <粒子提示词>` 新建 `particle-v1` 作业。
 2. 明确说明“将进行三次 512×512 透明 PNG 单图调用”，取得一次确认后运行 `particle-confirm --gate generation` 与 `run-particles`。
 3. 运行 `ingest --role particle`、`preview --role particle`；三张候选均会保存在派生主题中，默认选择粒子1。
 4. 根据运动描述生成 `particle-v1` spec 的 `motion`：`type` 仅为 `fall`、`rise`、`float`、`sweep`；其余字段必须落在脚本限制内。
-5. 最终确认后运行 `particle-confirm --gate final`、`accept --spec`。这会在用户主题目录创建派生主题，不改写来源主题；然后显式 `apply --theme`。
+5. 最终确认后运行 `particle-confirm --gate final`、`accept --spec`。这会在用户主题目录创建派生主题，不改写来源主题；然后显式 `apply --theme`。派生主题含粒子素材时，运行时会默认启用“AI 透明 PNG 素材”；只需点击缩略图切换候选。
 
 粒子提示词必须要求“单个居中主体、透明背景、四角透明”，并禁止文字、边框、场景、Logo 与水印。每次生成前提醒同样的等待与计费说明。
 

@@ -54,12 +54,14 @@ test("生成的注入脚本只保留背景控制和可清理状态", () => {
   assert.doesNotMatch(script, /开关动效|data-action="motion"|wbMotion/);
   assert.match(script, /环境粒子特效/);
   assert.match(script, /data-setting="weather"/);
-  assert.match(script, /下雨|雷雨|下雪|冒爱心|下星星|自定义符号/);
+  assert.match(script, /下雨|雷雨|下雪|冒爱心|下星星|手输符号（文字）/);
   assert.match(script, /data-setting="weather-intensity"/);
   assert.match(script, /data-setting="effect-speed"/);
   assert.match(script, /data-setting="effect-color"/);
   assert.match(script, /data-setting="particle-symbol"/);
-  assert.match(script, /AI 自定义素材/);
+  assert.match(script, /AI 透明 PNG 素材/);
+  assert.match(script, /particleAssets\.length \? "asset" : "none"/);
+  assert.match(script, /AI 图片素材不应填写在这里/);
   assert.match(script, /data-particle-assets/);
   assert.match(script, /data-particle-assets-status/);
   assert.match(script, /当前主题还没有 AI 粒子素材/);
