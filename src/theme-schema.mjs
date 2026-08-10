@@ -12,6 +12,10 @@ const DEFAULT_COLORS = { accent: "#7C5CFC", secondary: "#41D9C5", surface: "#101
 const SAFE_AREAS = new Set(["auto", "left", "right", "center", "none"]);
 const TASK_MODES = new Set(["auto", "ambient", "banner", "off"]);
 const APPEARANCES = new Set(["auto", "light", "dark"]);
+const PARTICLE_MOTIONS = new Set(["fall", "rise", "float", "sweep"]);
+const PARTICLE_ASSET_LIMIT = 3;
+const PARTICLE_ASSET_SOFT_BYTES = 3 * 1024 * 1024;
+const PARTICLE_ASSET_HARD_BYTES = 3 * 1024 * 1024;
 const ANCHORS = new Set(ANCHOR_IDS);
 const MODULE_KINDS = new Set(["decorate", "icon-swap", "floating"]);
 const MODULE_STATES = new Set(["default", "hover", "active"]);
@@ -164,6 +168,45 @@ function normalizeBackgrounds(value, background) {
   return result;
 }
 
+function normalizeParticleMotion(value, label = "particles.defaultMotion") {
+  const input = record(value, label);
+  const type = input.type ?? "float";
+  if (!PARTICLE_MOTIONS.has(type)) throw new Error(`${label}.type 必须是 fall、rise、float 或 sweep`);
+  return {
+    type,
+    duration: boundedNumber(input.duration, 12, 4, 30, `${label}.duration`),
+    sway: boundedNumber(input.sway, 96, 0, 220, `${label}.sway`),
+    rotation: boundedNumber(input.rotation, 180, 0, 720, `${label}.rotation`),
+    pulse: boundedNumber(input.pulse, 0.12, 0, 0.45, `${label}.pulse`),
+    opacity: boundedNumber(input.opacity, 0.72, 0.25, 1, `${label}.opacity`),
+    twinkle: Boolean(input.twinkle),
+  };
+}
+
+function normalizeParticles(value) {
+  if (value == null) return { assets: [], defaultAssetId: null, defaultMotion: normalizeParticleMotion({}) };
+  const input = record(value, "particles");
+  if (!Array.isArray(input.assets) || input.assets.length < 1 || input.assets.length > PARTICLE_ASSET_LIMIT) {
+    throw new Error(`particles.assets 必须包含 1 到 ${PARTICLE_ASSET_LIMIT} 张素材`);
+  }
+  const ids = new Set();
+  const assets = input.assets.map((item, index) => {
+    const label = `particles.assets[${index}]`;
+    const data = record(item, label);
+    if (typeof data.id !== "string" || !ID.test(data.id) || ids.has(data.id)) throw new Error(`${label}.id 必须是唯一安全 ID`);
+    ids.add(data.id);
+    if (typeof data.label !== "string" || !data.label.trim() || data.label.trim().length > 24) throw new Error(`${label}.label 必须是 1 到 24 个字符`);
+    const asset = assetPath(data.asset, { required: true, label: `${label}.asset` });
+    if (extname(asset).toLowerCase() !== ".png" || asset.replaceAll("\\", "/") !== `particles/${data.id}.png`) {
+      throw new Error(`${label}.asset 必须是 particles/${data.id}.png`);
+    }
+    return { id: data.id, label: data.label.trim(), asset };
+  });
+  const defaultAssetId = input.defaultAssetId ?? assets[0].id;
+  if (!ids.has(defaultAssetId)) throw new Error("particles.defaultAssetId 不属于 particles.assets");
+  return { assets, defaultAssetId, defaultMotion: normalizeParticleMotion(input.defaultMotion) };
+}
+
 function normalizeCopySets(value, homeHeader, modules) {
   if (value == null) return [];
   if (!Array.isArray(value) || value.length < 1 || value.length > 3) throw new Error("copySets 必须包含 1 到 3 套文案");
@@ -213,6 +256,7 @@ export function validateThemeManifest(input) {
   const background = assetPath(data.background, { required: true, label: "background" });
   const modules = normalizeModules(data.modules);
   const homeHeader = normalizeHomeHeader(data.homeHeader);
+  const particles = normalizeParticles(data.particles);
   return {
     schemaVersion: THEME_SCHEMA_VERSION,
     id: data.id,
@@ -232,6 +276,7 @@ export function validateThemeManifest(input) {
       safeArea: art.safeArea ?? "auto",
       taskMode: art.taskMode ?? "auto",
     },
+    particles,
     homeHeader,
     modules,
     copySets: normalizeCopySets(data.copySets, homeHeader, modules),
@@ -271,9 +316,20 @@ export async function loadTheme(themeDir) {
     moduleAssets.push({ id: module.id, path, size });
   }
   if (moduleBytes > MODULE_HARD_TOTAL_BYTES) throw new Error(`modules 素材总大小不能超过 ${MODULE_HARD_TOTAL_BYTES / 1024 / 1024} MB`);
+  const particleAssets = [];
+  let particleBytes = 0;
+  for (const particle of manifest.particles.assets) {
+    const path = await verifiedAsset(root, particle.asset, `particle ${particle.id}`);
+    const size = (await lstat(path)).size;
+    if (size > 1024 * 1024) throw new Error(`particle ${particle.id} 不能超过 1 MB`);
+    particleBytes += size;
+    particleAssets.push({ ...particle, path, size });
+  }
+  if (particleBytes > PARTICLE_ASSET_HARD_BYTES) throw new Error(`particles 素材总大小不能超过 ${PARTICLE_ASSET_HARD_BYTES / 1024 / 1024} MB`);
   const warnings = [];
   for (const background of backgroundAssets) if (background.size > BACKGROUND_SOFT_BYTES) warnings.push(`${background.label} 为 ${(background.size / 1024 / 1024).toFixed(1)} MB，建议不超过 12 MB`);
   if (manifest.modules.length > MODULE_SOFT_COUNT_LIMIT) warnings.push(`modules 有 ${manifest.modules.length} 个，建议每批不超过 ${MODULE_SOFT_COUNT_LIMIT} 个`);
   if (moduleBytes > MODULE_SOFT_TOTAL_BYTES) warnings.push(`modules 素材共 ${(moduleBytes / 1024 / 1024).toFixed(1)} MB，建议分批控制在 ${MODULE_SOFT_TOTAL_BYTES / 1024 / 1024} MB 内`);
-  return { root, manifest, backgroundPath, backgroundAssets, moduleAssets, warnings };
+  if (particleBytes > PARTICLE_ASSET_SOFT_BYTES) warnings.push(`particles 素材共 ${(particleBytes / 1024 / 1024).toFixed(1)} MB，建议不超过 ${PARTICLE_ASSET_SOFT_BYTES / 1024 / 1024} MB`);
+  return { root, manifest, backgroundPath, backgroundAssets, moduleAssets, particleAssets, warnings };
 }

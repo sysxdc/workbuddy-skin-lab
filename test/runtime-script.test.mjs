@@ -17,6 +17,7 @@ const theme = {
   colors: { accent: "#112233", secondary: "#445566", surface: "#101010", text: "#FEFEFE" },
   ui: { opacity: 0.8, blur: 16, radius: 12, appearance: "auto" },
   art: { focusX: 0.72, focusY: 0.45, safeArea: "left", taskMode: "ambient" },
+  particles: { assets: [{ id: "particle-1", label: "樱花", asset: "particles/particle-1.png", dataUrl: "data:image/png;base64,AA==" }], defaultAssetId: "particle-1", defaultMotion: { type: "fall", duration: 12, sway: 96, rotation: 180, pulse: 0.12, opacity: 0.72, twinkle: false } },
   homeHeader: { title: "测试工作台", subtitle: "专注完成今天" },
   copySets: [
     { id: "focus", label: "专注", homeHeader: { title: "测试工作台", subtitle: "专注完成今天" }, modules: { "side-note": { title: "今日陪伴", subtitle: "慢一点也很好" } } },
@@ -58,6 +59,11 @@ test("生成的注入脚本只保留背景控制和可清理状态", () => {
   assert.match(script, /data-setting="effect-speed"/);
   assert.match(script, /data-setting="effect-color"/);
   assert.match(script, /data-setting="particle-symbol"/);
+  assert.match(script, /AI 自定义素材/);
+  assert.match(script, /data-particle-assets/);
+  assert.match(script, /data-setting="particle-motion"/);
+  assert.match(script, /normalizeParticleMotion/);
+  assert.match(script, /particleAssetId/);
   assert.match(script, /particle\.textContent = symbols/);
   assert.match(script, /\.slice\(0, 2\)\.join/);
   assert.match(script, /Math\.imul/);
@@ -181,6 +187,11 @@ test("CSS 使用 WorkBuddy 稳定锚点", () => {
   assert.match(css, /data-weather="hearts"/);
   assert.match(css, /data-weather="stars"/);
   assert.match(css, /data-weather="custom"/);
+  assert.match(css, /data-weather="asset"/);
+  assert.match(css, /wb-asset-fall/);
+  assert.match(css, /wb-asset-rise/);
+  assert.match(css, /wb-asset-float/);
+  assert.match(css, /wb-asset-sweep/);
   assert.match(css, /wb-rain-fall/);
   assert.match(css, /wb-snow-fall/);
   assert.match(css, /wb-heart-rise/);

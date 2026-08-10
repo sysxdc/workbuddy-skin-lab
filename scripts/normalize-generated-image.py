@@ -21,6 +21,7 @@ SPECS = {
     "hero": {"size": (1024, 1024), "mode": "RGBA", "max": 4 * 1024 * 1024},
     "icon": {"size": (1024, 1024), "mode": "RGBA", "max": 4 * 1024 * 1024},
     "composer": {"size": (512, 512), "mode": "RGBA", "max": 2 * 1024 * 1024},
+    "particle": {"size": (512, 512), "mode": "RGBA", "max": 1024 * 1024},
 }
 
 

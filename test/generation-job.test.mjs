@@ -9,6 +9,7 @@ import {
   IMAGE_PROCESS_TIMEOUT_MS,
   IMAGE_QUALITY,
   IMAGE_TIMEOUT_MS,
+  PARTICLE_TEMPLATE_VERSION,
   TEMPLATE_VERSION,
   credentialConfigured,
   fixedManifest,
@@ -16,6 +17,7 @@ import {
   run,
   startForegroundHeartbeat,
   validateGenerationSpec,
+  validateParticleSpec,
 } from "../scripts/theme-generation-job.mjs";
 import { run as runControlledImage } from "../scripts/run-nonelinear-image.mjs";
 
@@ -97,6 +99,67 @@ test("一次确认只授权三个 n=1 背景调用", async (t) => {
   const status = await run(["resume", "--job", fixture.initialized.jobId, "--jobs-root", fixture.jobs, "--store-root", fixture.themes]);
   assert.equal(status.nextAction, "ingest-background");
   assert.equal(status.progress.total, 1);
+});
+
+test("particle-v1 固定授权三张透明候选并接受安全轨迹", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "wb-particle-job-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const jobs = join(root, "jobs");
+  const themes = join(root, "themes");
+  const source = join(root, "source-theme");
+  const prompt = join(root, "particle-prompt.txt");
+  const fakeSkill = join(root, "fake-skill.mjs");
+  await mkdir(source, { recursive: true });
+  await writeFile(join(source, "background.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>", "utf8");
+  await writeFile(join(source, "theme.json"), JSON.stringify({ schemaVersion: 1, id: "source-theme", name: "Source", background: "background.svg" }), "utf8");
+  await writeFile(prompt, "pink cherry blossom petal", "utf8");
+  await writeFile(fakeSkill, "export async function run() {}", "utf8");
+  const initialized = await run(["particle-init", "--name", "樱花", "--source-theme", source, "--prompt-file", prompt, "--jobs-root", jobs, "--store-root", themes]);
+  assert.equal(initialized.template, PARTICLE_TEMPLATE_VERSION);
+  await run(["particle-confirm", "--job", initialized.jobId, "--gate", "generation", "--jobs-root", jobs, "--store-root", themes]);
+  const authorized = await run(["status", "--job", initialized.jobId, "--jobs-root", jobs, "--store-root", themes]);
+  assert.deepEqual(authorized.callsAuthorized, { particle: 3 });
+  const generated = await run(["run-particles", "--job", initialized.jobId, "--prompt-file", prompt, "--skill-script", fakeSkill, "--jobs-root", jobs, "--store-root", themes], {
+    executeImageProcess: async ({ candidateIndex, args }) => {
+      assert.match(args.join(" "), /transparent background/);
+      return { code: 0, timedOut: false, stdout: JSON.stringify({ status: "completed", images: [{ url: `https://cdn.example.com/particle-${candidateIndex + 1}.png` }] }) };
+    },
+  });
+  assert.deepEqual([generated.status, generated.candidateCount], ["completed", 3]);
+  const motion = validateParticleSpec({ template: "particle-v1", motion: { type: "fall", duration: 14, sway: 120, rotation: 240, pulse: 0.2, opacity: 0.8, twinkle: true } });
+  assert.equal(motion.motion.type, "fall");
+  assert.throws(() => validateParticleSpec({ template: "particle-v1", motion: { type: "spiral" } }), /motion\.type/);
+});
+
+test("particle-v1 接受后创建派生主题且不改写来源主题", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "wb-particle-accept-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const jobs = join(root, "jobs"); const themes = join(root, "themes"); const source = join(root, "source-theme");
+  const prompt = join(root, "prompt.txt"); const spec = join(root, "particle-spec.json");
+  await mkdir(source, { recursive: true });
+  await writeFile(join(source, "background.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>", "utf8");
+  await writeFile(join(source, "theme.json"), JSON.stringify({ schemaVersion: 1, id: "source", name: "Source", background: "background.svg" }), "utf8");
+  await writeFile(prompt, "single transparent petal", "utf8");
+  await writeFile(spec, JSON.stringify({ template: "particle-v1", name: "Source petals", motion: { type: "fall", duration: 12, sway: 96, rotation: 180, pulse: 0.12, opacity: 0.72, twinkle: false } }), "utf8");
+  const initialized = await run(["particle-init", "--source-theme", source, "--prompt-file", prompt, "--jobs-root", jobs, "--store-root", themes]);
+  await run(["particle-confirm", "--job", initialized.jobId, "--gate", "generation", "--jobs-root", jobs, "--store-root", themes]);
+  const normalized = join(jobs, initialized.jobId, "normalized"); await mkdir(normalized, { recursive: true });
+  const candidates = [];
+  for (let number = 1; number <= 3; number += 1) {
+    const file = `particle-${number}.png`; await writeFile(join(normalized, file), Buffer.from([137, 80, 78, 71]));
+    candidates.push({ id: `particle-${number}`, label: `粒子${number}`, normalized: `normalized/${file}`, url: `https://cdn.example.com/${file}` });
+  }
+  const jobPath = join(jobs, initialized.jobId, "job.json"); const job = JSON.parse(await readFile(jobPath, "utf8"));
+  job.outputs.particle = { ...candidates[0], candidates, previewedAt: new Date().toISOString(), sourceMode: "generated" };
+  await writeFile(jobPath, JSON.stringify(job), "utf8");
+  await run(["particle-confirm", "--job", initialized.jobId, "--gate", "final", "--jobs-root", jobs, "--store-root", themes]);
+  const accepted = await run(["accept", "--job", initialized.jobId, "--spec", spec, "--jobs-root", jobs, "--store-root", themes]);
+  assert.equal(accepted.particleOnly, true);
+  assert.notEqual(accepted.path, source);
+  const manifest = JSON.parse(await readFile(join(accepted.path, "theme.json"), "utf8"));
+  assert.equal(manifest.particles.assets.length, 3);
+  assert.equal(manifest.particles.defaultMotion.type, "fall");
+  assert.equal(JSON.parse(await readFile(join(source, "theme.json"), "utf8")).particles, undefined);
 });
 
 test("旧模块生成和 Home 组件验收命令已禁用", async (t) => {

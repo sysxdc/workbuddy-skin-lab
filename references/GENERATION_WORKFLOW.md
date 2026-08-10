@@ -1,6 +1,6 @@
-# background-v1 背景主题流程
+# background-v1 背景主题与 particle-v1 粒子流程
 
-WorkBuddy 5.3.8 起，本项目只创建背景主题。旧版 `home-scene-v1`、首页文案、场景图标、卡片、宠物和悬浮模块已经停用，不得生成或写入新主题。
+WorkBuddy 5.3.8 起，本项目只创建背景主题与背景层粒子主题。旧版 `home-scene-v1`、首页文案、场景图标、卡片、宠物和悬浮模块已经停用，不得生成或写入新主题。
 
 ## 素材与调用量
 
@@ -9,6 +9,7 @@ WorkBuddy 5.3.8 起，本项目只创建背景主题。旧版 `home-scene-v1`、
 | generate | 三次单图背景调用 | 三张 2048×1152 背景候选 |
 | edit | 三次单图背景调用 | 三张 2048×1152 背景候选 |
 | direct | 0 | 一张用户参考背景 |
+| particle-v1 | 三次单图粒子调用 | 三张 512×512 透明 PNG 候选及安全运动配方 |
 
 所有生成请求固定使用 `gpt-image-2`、`quality=low`、`response_format=url`、`n=1`。禁止文字、字母、排版、UI 框架、WorkBuddy 标志和水印。
 
@@ -22,19 +23,31 @@ WorkBuddy 5.3.8 起，本项目只创建背景主题。旧版 `home-scene-v1`、
 6. 创建 `background-v1` 规格。它只允许 `template`、`name`、`colors` 和 `art`，不得包含文案或组件字段。
 7. 取得最终确认，运行 `confirm --gate final`、`accept --spec` 和 `apply --theme`。
 
+## particle-v1
+
+`particle-v1` 基于现有主题创建用户目录中的派生主题，不改写来源主题或内置主题。每次作业固定三次 `n=1` 调用，素材必须是单个居中主体、透明背景、四角透明、无文字、无场景、无边框、无 Logo、无水印。
+
+运动由 AI 根据用户的自然语言描述填写受限 JSON；脚本只接受 `fall`、`rise`、`float`、`sweep` 四种轨迹，以及受限的时长、摆动、旋转、缩放起伏、透明度和闪烁参数。禁止自由 CSS、JavaScript 或关键帧代码。
+
 ## 命令索引
 
 ```powershell
 node scripts/theme-generation-job.mjs resume
 node scripts/theme-generation-job.mjs preflight --skill-script <nonelinear脚本> --python <python.exe>
 node scripts/theme-generation-job.mjs init --name "主题名" --prompt-file <提示词> [--reference <HTTPS或本地图片> --reference-mode <edit|direct>]
+node scripts/theme-generation-job.mjs particle-init --name "主题名·粒子" --source-theme <当前主题目录> --prompt-file <粒子提示词>
 node scripts/theme-generation-job.mjs confirm --job <jobId> --gate upload
 node scripts/theme-generation-job.mjs upload-reference --job <jobId> --script scripts/upload-reference.py --python <python.exe>
 node scripts/theme-generation-job.mjs confirm --job <jobId> --gate generation
 node scripts/theme-generation-job.mjs run-backgrounds --job <jobId> --prompt-file <提示词> --skill-script <nonelinear脚本>
+node scripts/theme-generation-job.mjs particle-confirm --job <jobId> --gate generation
+node scripts/theme-generation-job.mjs run-particles --job <jobId> --prompt-file <粒子提示词> --skill-script <nonelinear脚本>
 node scripts/theme-generation-job.mjs ingest --job <jobId> --role background --python <python.exe>
 node scripts/theme-generation-job.mjs preview --job <jobId> --role background
+node scripts/theme-generation-job.mjs ingest --job <jobId> --role particle --python <python.exe>
+node scripts/theme-generation-job.mjs preview --job <jobId> --role particle
 node scripts/theme-generation-job.mjs confirm --job <jobId> --gate final
+node scripts/theme-generation-job.mjs particle-confirm --job <jobId> --gate final
 node scripts/theme-generation-job.mjs accept --job <jobId> --spec <generation-spec.json>
 node src/cli.mjs apply --theme <themeId> --port 9223
 ```

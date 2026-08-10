@@ -269,11 +269,28 @@ function runtimeMain(payload) {
     value ^= value >>> 16;
     return (value >>> 0) / 4294967296;
   };
+  const normalizeParticleMotion = (input) => {
+    const value = input && typeof input === "object" ? input : {};
+    const number = (key, fallback, min, max) => Number.isFinite(value[key]) && value[key] >= min && value[key] <= max ? value[key] : fallback;
+    return {
+      type: ["fall", "rise", "float", "sweep"].includes(value.type) ? value.type : "float",
+      duration: number("duration", 12, 4, 30), sway: number("sway", 96, 0, 220),
+      rotation: number("rotation", 180, 0, 720), pulse: number("pulse", 0.12, 0, 0.45),
+      opacity: number("opacity", 0.72, 0.25, 1), twinkle: Boolean(value.twinkle),
+    };
+  };
   const syncAmbientEffects = () => {
     const custom = overrides();
-    const weather = ["none", "rain", "thunder", "snow", "hearts", "stars", "custom"].includes(custom.weather) ? custom.weather : "none";
+    const theme = themeById(state.activeId);
+    const themeParticles = theme.particles || { assets: [], defaultAssetId: null, defaultMotion: {} };
+    const particleAssets = Array.isArray(themeParticles.assets) ? themeParticles.assets : [];
+    const selectedAssetId = particleAssets.some((asset) => asset.id === custom.particleAssetId) ? custom.particleAssetId : themeParticles.defaultAssetId;
+    const selectedAsset = particleAssets.find((asset) => asset.id === selectedAssetId) || null;
+    let weather = ["none", "rain", "thunder", "snow", "hearts", "stars", "custom", "asset"].includes(custom.weather) ? custom.weather : "none";
+    if (weather === "asset" && !selectedAsset) weather = "none";
     const intensity = ["low", "medium", "high"].includes(custom.weatherIntensity) ? custom.weatherIntensity : "medium";
     const speed = ["slow", "normal", "fast"].includes(custom.effectSpeed) ? custom.effectSpeed : "normal";
+    const motion = normalizeParticleMotion(custom.particleMotion || themeParticles.defaultMotion);
     const defaultColors = { rain: "#B7DBFF", thunder: "#D9E6FF", snow: "#FFFFFF", hearts: "#FF6B9A", stars: "#FFD76A", custom: "#FFFFFF" };
     const color = typeof custom.effectColor === "string" && /^#[0-9a-f]{6}$/i.test(custom.effectColor)
       ? custom.effectColor.toUpperCase() : (defaultColors[weather] || "#FFFFFF");
@@ -282,6 +299,8 @@ function runtimeMain(payload) {
     effectsHost.dataset.weather = weather;
     effectsHost.dataset.weatherIntensity = intensity;
     effectsHost.dataset.effectSpeed = speed;
+    effectsHost.dataset.particleMotion = motion.type;
+    effectsHost.dataset.particleTwinkle = String(motion.twinkle);
     effectsHost.style.setProperty("--wb-particle-color", color);
     weatherLayer.replaceChildren();
     const counts = weather === "rain" || weather === "thunder"
@@ -293,29 +312,31 @@ function runtimeMain(payload) {
       snow: ["❄", "❅", "❆"],
       hearts: ["♥", "❤", "♡"],
       stars: ["✦", "★", "✧", "⋆"],
-      custom: [customSymbol],
+      custom: [customSymbol], asset: [""],
     };
     const modeSeed = { rain: 0, thunder: 1000, snow: 2000, hearts: 3000, stars: 4000, custom: 5000 }[weather] || 0;
     for (let index = 0; index < count; index += 1) {
       const particle = document.createElement("i");
       const randomValue = (salt) => unitValue(modeSeed + index * 131 + salt);
       particle.textContent = symbols[weather]?.[index % symbols[weather].length] || "";
+      if (weather === "asset") particle.style.backgroundImage = `url(${JSON.stringify(selectedAsset.dataUrl)})`;
       particle.style.setProperty("--wb-particle-x", `${Math.round(randomValue(11) * 10000) / 100}%`);
       const durationBase = weather === "rain" || weather === "thunder"
         ? 0.65 + randomValue(71) * 0.8
-        : weather === "snow" ? 9 + randomValue(71) * 9 : 7 + randomValue(71) * 8;
+        : weather === "snow" ? 9 + randomValue(71) * 9 : weather === "asset" ? motion.duration * (0.78 + randomValue(71) * 0.44) : 7 + randomValue(71) * 8;
       const duration = durationBase * speedScale;
       particle.style.setProperty("--wb-particle-duration", `${Math.round(duration * 100) / 100}s`);
       particle.style.setProperty("--wb-particle-delay", `${Math.round(randomValue(37) * duration * -100) / 100}s`);
       particle.style.setProperty("--wb-particle-scale", `${Math.round((0.55 + randomValue(101) * 0.9) * 100) / 100}`);
-      particle.style.setProperty("--wb-particle-opacity", `${Math.round((0.42 + randomValue(151) * 0.5) * 100) / 100}`);
-      const driftRange = weather === "snow" ? 100 : weather === "stars" ? 150 : 130;
+      particle.style.setProperty("--wb-particle-opacity", `${Math.round((weather === "asset" ? motion.opacity * (0.78 + randomValue(151) * 0.22) : 0.42 + randomValue(151) * 0.5) * 100) / 100}`);
+      particle.style.setProperty("--wb-particle-pulse", String(motion.pulse));
+      const driftRange = weather === "asset" ? motion.sway : weather === "snow" ? 100 : weather === "stars" ? 150 : 130;
       const drift = (salt) => `${Math.round((randomValue(salt) - 0.5) * driftRange * 2)}px`;
       particle.style.setProperty("--wb-drift-a", drift(181));
       particle.style.setProperty("--wb-drift-b", drift(211));
       particle.style.setProperty("--wb-drift-c", drift(241));
       particle.style.setProperty("--wb-drift-end", drift(271));
-      const spin = Math.round((randomValue(301) - 0.5) * 720);
+      const spin = Math.round((randomValue(301) - 0.5) * (weather === "asset" ? motion.rotation * 2 : 720));
       particle.style.setProperty("--wb-spin-a", `${Math.round(spin * 0.28)}deg`);
       particle.style.setProperty("--wb-spin-b", `${Math.round(spin * 0.62)}deg`);
       particle.style.setProperty("--wb-spin-end", `${spin}deg`);
@@ -343,6 +364,30 @@ function runtimeMain(payload) {
       symbolInput.value = customSymbol;
       symbolInput.disabled = weather !== "custom";
     }
+    const assetOptions = document.querySelector(`#${ids.dock} [data-particle-assets]`);
+    if (assetOptions) {
+      assetOptions.replaceChildren();
+      for (const asset of particleAssets) {
+        const button = document.createElement("button");
+        const image = document.createElement("img");
+        button.type = "button"; button.dataset.particleAssetId = asset.id; button.title = asset.label;
+        image.src = asset.dataUrl; image.alt = asset.label;
+        button.append(image);
+        button.dataset.active = String(asset.id === selectedAssetId);
+        listen(button, "click", () => { savePatch({ weather: "asset", particleAssetId: asset.id }); syncAmbientEffects(); });
+        assetOptions.append(button);
+      }
+      assetOptions.hidden = particleAssets.length === 0;
+    }
+    const syncMotionControl = (name, value, disabled = weather !== "asset") => {
+      const control = document.querySelector(`#${ids.dock} [data-setting="${name}"]`);
+      if (control) { control.value = String(value); control.disabled = disabled; }
+    };
+    syncMotionControl("particle-motion", motion.type);
+    syncMotionControl("particle-sway", motion.sway);
+    syncMotionControl("particle-rotation", motion.rotation);
+    syncMotionControl("particle-pulse", motion.pulse);
+    syncMotionControl("particle-twinkle", motion.twinkle ? "on" : "off");
   };
 
   const applyTheme = (id) => {
@@ -521,11 +566,17 @@ function runtimeMain(payload) {
         <label>回答阅读层<select data-setting="readability"><option value="on">显示（更清晰）</option><option value="off">关闭（背景通透）</option></select></label>
       </div></details>
       <details><summary>环境粒子特效</summary><div class="wb-panel-group">
-        <label>粒子特效<select data-setting="weather"><option value="none">关闭</option><option value="rain">下雨</option><option value="thunder">雷雨</option><option value="snow">下雪</option><option value="hearts">冒爱心</option><option value="stars">下星星</option><option value="custom">自定义符号</option></select></label>
+        <label>粒子特效<select data-setting="weather"><option value="none">关闭</option><option value="rain">下雨</option><option value="thunder">雷雨</option><option value="snow">下雪</option><option value="hearts">冒爱心</option><option value="stars">下星星</option><option value="custom">自定义符号</option><option value="asset">AI 自定义素材</option></select></label>
         <label>粒子强度<select data-setting="weather-intensity"><option value="low">轻</option><option value="medium">中</option><option value="high">强</option></select></label>
         <label>粒子速度<select data-setting="effect-speed"><option value="slow">慢</option><option value="normal">正常</option><option value="fast">快</option></select></label>
         <label>粒子颜色<input data-setting="effect-color" type="color" value="#FFFFFF"></label>
         <label>自定义符号<input data-setting="particle-symbol" maxlength="4" placeholder="例如：🌸"></label>
+        <div data-particle-assets hidden></div>
+        <label>素材轨迹<select data-setting="particle-motion"><option value="fall">飘落</option><option value="rise">上浮</option><option value="float">漂浮</option><option value="sweep">横向掠过</option></select></label>
+        <label>摆动幅度<input data-setting="particle-sway" type="range" min="0" max="220" step="1" value="96"></label>
+        <label>旋转幅度<input data-setting="particle-rotation" type="range" min="0" max="720" step="10" value="180"></label>
+        <label>缩放起伏<input data-setting="particle-pulse" type="range" min="0" max="0.45" step="0.01" value="0.12"></label>
+        <label>闪烁<select data-setting="particle-twinkle"><option value="off">关闭</option><option value="on">开启</option></select></label>
         <small>粒子只显示在背景层，不接收点击，也不会替换 WorkBuddy 的原生内容。系统启用“减少动态效果”时会自动停止动画。</small>
       </div></details>
       <details><summary>恢复与重置</summary><div class="wb-panel-group"><button data-action="reset">重置本主题</button><button data-action="native">恢复原生界面</button></div></details>
@@ -690,6 +741,19 @@ function runtimeMain(payload) {
     savePatch({ particleSymbol: [...event.target.value.trim()].slice(0, 2).join("") });
     syncAmbientEffects();
   });
+  for (const name of ["particle-motion", "particle-sway", "particle-rotation", "particle-pulse", "particle-twinkle"]) {
+    listen(dock.querySelector(`[data-setting="${name}"]`), "change", (event) => {
+      const current = normalizeParticleMotion(overrides().particleMotion || themeById(state.activeId).particles?.defaultMotion);
+      const values = { type: event.target.value, sway: Number(event.target.value), rotation: Number(event.target.value), pulse: Number(event.target.value), twinkle: event.target.value === "on" };
+      if (name === "particle-motion") current.type = values.type;
+      if (name === "particle-sway") current.sway = values.sway;
+      if (name === "particle-rotation") current.rotation = values.rotation;
+      if (name === "particle-pulse") current.pulse = values.pulse;
+      if (name === "particle-twinkle") current.twinkle = values.twinkle;
+      savePatch({ weather: "asset", particleMotion: normalizeParticleMotion(current) });
+      syncAmbientEffects();
+    });
+  }
   listen(dock.querySelector('[data-action="background"]'), "click", () => chooseBackground(1920));
   listen(dock.querySelector('[data-action="reset"]'), "click", () => {
     const current = safeStorage.read();
