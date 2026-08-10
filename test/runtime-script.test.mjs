@@ -61,6 +61,9 @@ test("生成的注入脚本只保留背景控制和可清理状态", () => {
   assert.match(script, /data-setting="particle-symbol"/);
   assert.match(script, /AI 自定义素材/);
   assert.match(script, /data-particle-assets/);
+  assert.match(script, /data-particle-assets-status/);
+  assert.match(script, /当前主题还没有 AI 粒子素材/);
+  assert.match(script, /option\[value="asset"\]/);
   assert.match(script, /data-setting="particle-motion"/);
   assert.match(script, /normalizeParticleMotion/);
   assert.match(script, /particleAssetId/);
@@ -188,6 +191,7 @@ test("CSS 使用 WorkBuddy 稳定锚点", () => {
   assert.match(css, /data-weather="stars"/);
   assert.match(css, /data-weather="custom"/);
   assert.match(css, /data-weather="asset"/);
+  assert.match(css, /data-particle-assets-status/);
   assert.match(css, /wb-asset-fall/);
   assert.match(css, /wb-asset-rise/);
   assert.match(css, /wb-asset-float/);

@@ -365,6 +365,7 @@ function runtimeMain(payload) {
       symbolInput.disabled = weather !== "custom";
     }
     const assetOptions = document.querySelector(`#${ids.dock} [data-particle-assets]`);
+    const assetStatus = document.querySelector(`#${ids.dock} [data-particle-assets-status]`);
     if (assetOptions) {
       assetOptions.replaceChildren();
       for (const asset of particleAssets) {
@@ -379,6 +380,13 @@ function runtimeMain(payload) {
       }
       assetOptions.hidden = particleAssets.length === 0;
     }
+    if (assetStatus) {
+      assetStatus.textContent = particleAssets.length
+        ? "选择缩略图即可启用 AI 自定义素材；下面的轨迹控件会随之解锁。"
+        : "当前主题还没有 AI 粒子素材。请在 WorkBuddy 对话中使用 v1.5.1 Skill 生成，确认后会创建一个可再次使用的新主题。";
+    }
+    const assetOption = weatherSelect?.querySelector('option[value="asset"]');
+    if (assetOption) assetOption.disabled = particleAssets.length === 0;
     const syncMotionControl = (name, value, disabled = weather !== "asset") => {
       const control = document.querySelector(`#${ids.dock} [data-setting="${name}"]`);
       if (control) { control.value = String(value); control.disabled = disabled; }
@@ -572,6 +580,7 @@ function runtimeMain(payload) {
         <label>粒子颜色<input data-setting="effect-color" type="color" value="#FFFFFF"></label>
         <label>自定义符号<input data-setting="particle-symbol" maxlength="4" placeholder="例如：🌸"></label>
         <div data-particle-assets hidden></div>
+        <small data-particle-assets-status></small>
         <label>素材轨迹<select data-setting="particle-motion"><option value="fall">飘落</option><option value="rise">上浮</option><option value="float">漂浮</option><option value="sweep">横向掠过</option></select></label>
         <label>摆动幅度<input data-setting="particle-sway" type="range" min="0" max="220" step="1" value="96"></label>
         <label>旋转幅度<input data-setting="particle-rotation" type="range" min="0" max="720" step="10" value="180"></label>
