@@ -44,6 +44,8 @@ try {
   # 不把本机公众号草稿混入可导入 Skill。
   Get-ChildItem -LiteralPath (Join-Path $skinStage 'docs') -File -Filter 'WECHAT_ARTICLE_*' -ErrorAction SilentlyContinue |
     Remove-Item -Force
+  # Skill 运行不需要教程媒体；不打包截图或视频，避免膨胀与隐私泄露。
+  Remove-Item -LiteralPath (Join-Path $skinStage 'docs\assets') -Recurse -Force -ErrorAction SilentlyContinue
   $skinScripts = Join-Path $skinStage 'scripts'
   New-Item -ItemType Directory -Force -Path $skinScripts | Out-Null
   foreach ($file in @('theme-generation-job.mjs','run-nonelinear-image.mjs','upload-reference.py','normalize-generated-image.py')) {

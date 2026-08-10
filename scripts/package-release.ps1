@@ -76,6 +76,8 @@ try {
   # 公众号草稿和渲染产物属于本机编辑内容，不能随着通用安装包发布。
   Get-ChildItem -LiteralPath (Join-Path $stageRoot 'docs') -File -Filter 'WECHAT_ARTICLE_*' -ErrorAction SilentlyContinue |
     Remove-Item -Force
+  # 本机演示视频可能包含个人界面信息，发布包绝不携带。
+  Remove-Item -LiteralPath (Join-Path $stageRoot 'docs\assets\workbuddy-skin-demo-v1.4.1-private.mp4') -Force -ErrorAction SilentlyContinue
   # Python 测试会生成带本机绝对路径的字节码缓存，发布包不得包含它们。
   Get-ChildItem -LiteralPath $stageRoot -Recurse -Directory -Filter '__pycache__' |
     Remove-Item -Recurse -Force
