@@ -136,7 +136,7 @@ export async function probeAnchors({ port, deps = {} }) {
 export async function applySkin({ loadedThemes, activeId, port, deps = {} }) {
   const entries = [];
   for (const theme of loadedThemes) entries.push(await themeEntry(theme));
-  const expression = buildRuntimeScript({ css: buildSkinCss(entries), themes: entries, activeId });
+  const expression = buildRuntimeScript({ css: buildSkinCss(entries), themes: entries, activeId, persistOnInstall: true });
   const targets = await (deps.waitForRendererTargets ?? waitForRendererTargets)(port);
   const results = await evaluateTargets(targets, expression, deps.Session);
   const mismatch = results.find((result) => !result?.installed || result.activeId !== activeId);

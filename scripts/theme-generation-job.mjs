@@ -8,7 +8,7 @@ import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { resolveStatePaths } from "../src/constants.mjs";
-import { slugify } from "../src/theme-store.mjs";
+import { slugify, writePendingThemeId } from "../src/theme-store.mjs";
 import { assetPath, loadTheme, validateThemeManifest, verifiedAsset } from "../src/theme-schema.mjs";
 
 export const JOB_VERSION = 1;
@@ -49,9 +49,11 @@ export function startForegroundHeartbeat({
 
 function stateRoots(overrides = {}) {
   const state = resolveStatePaths();
+  const storeRoot = resolve(overrides.storeRoot ?? state.themesRoot);
   return {
     jobsRoot: resolve(overrides.jobsRoot ?? join(state.root, "generation-jobs")),
-    storeRoot: resolve(overrides.storeRoot ?? state.themesRoot),
+    storeRoot,
+    settingsPath: resolve(overrides.settingsPath ?? (overrides.storeRoot ? join(dirname(storeRoot), "settings.json") : state.settingsPath)),
     discardedRoot: resolve(overrides.discardedRoot ?? join(state.root, "discarded")),
   };
 }
@@ -973,6 +975,7 @@ async function acceptJob(options, roots) {
     const themePath = resolve(job.theme.path);
     if (!inside(roots.storeRoot, themePath)) throw new Error("接受主题不在用户主题目录中");
     await loadTheme(themePath);
+    await writePendingThemeId(roots.settingsPath, job.theme.id);
     for (const output of Object.values(job.outputs)) {
       if (!output) continue;
       output.url = null; output.downloaded = null; output.normalized = null;
@@ -982,7 +985,7 @@ async function acceptJob(options, roots) {
     await rm(join(root, "normalized"), { recursive: true, force: true });
     job.status = "accepted";
     await saveJob(root, job);
-    return { status: "completed", themeId: job.theme.id, path: job.theme.path, backgroundOnly: true, particleOnly: true, next: "apply-theme" };
+    return { status: "completed", themeId: job.theme.id, pendingThemeId: job.theme.id, path: job.theme.path, backgroundOnly: true, particleOnly: true, next: "apply-theme" };
   }
   if (!job.outputs?.background?.normalized) throw new Error("accept 前必须完成背景素材");
   if (!job.theme?.path || job.needsBuild) {
@@ -992,6 +995,7 @@ async function acceptJob(options, roots) {
   const themePath = resolve(job.theme.path);
   if (!inside(roots.storeRoot, themePath)) throw new Error("接受主题不在用户主题目录中");
   await loadTheme(themePath);
+  await writePendingThemeId(roots.settingsPath, job.theme.id);
   for (const output of Object.values(job.outputs)) {
     if (!output) continue;
     output.url = null;
@@ -1004,7 +1008,7 @@ async function acceptJob(options, roots) {
   await rm(join(root, "normalized"), { recursive: true, force: true });
   job.status = "accepted";
   await saveJob(root, job);
-  return { status: "completed", themeId: job.theme.id, path: job.theme.path, backgroundOnly: true, next: "apply-theme" };
+  return { status: "completed", themeId: job.theme.id, pendingThemeId: job.theme.id, path: job.theme.path, backgroundOnly: true, next: "apply-theme" };
 }
 
 async function discardJob(options, roots) {
@@ -1051,7 +1055,7 @@ function parseOptions(argv) {
 export async function run(argv, overrides = {}) {
   const command = argv[0] || "help";
   const options = parseOptions(argv);
-  const roots = stateRoots({ jobsRoot: options["jobs-root"], storeRoot: options["store-root"], discardedRoot: options["discarded-root"] });
+  const roots = stateRoots({ jobsRoot: options["jobs-root"], storeRoot: options["store-root"], discardedRoot: options["discarded-root"], settingsPath: options["settings-path"] });
   const deps = { ...overrides };
   if (command === "help") return { status: "completed", commands: ["init", "particle-init", "preflight", "confirm", "particle-confirm", "authorize", "upload-reference", "run-image", "run-backgrounds", "run-particles", "ingest", "preview", "resume", "status", "accept", "discard"] };
   if (command === "init") { await mkdir(roots.jobsRoot, { recursive: true }); return initialize(options, roots); }

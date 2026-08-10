@@ -43,7 +43,7 @@ AI 粒子素材与面板中的“手输符号（文字）”是两条完全独�
 2. 明确说明“将进行三次 512×512 透明 PNG 单图调用”，取得一次确认后运行 `particle-confirm --gate generation` 与 `run-particles`。
 3. 运行 `ingest --role particle`、`preview --role particle`；三张候选均会保存在派生主题中，默认选择粒子1。
 4. 根据运动描述生成 `particle-v1` spec 的 `motion`：`type` 仅为 `fall`、`rise`、`float`、`sweep`；其余字段必须落在脚本限制内。
-5. 最终确认后运行 `particle-confirm --gate final`、`accept --spec`。这会在用户主题目录创建派生主题，不改写来源主题；然后显式 `apply --theme`。派生主题含粒子素材时，运行时会默认启用“AI 透明 PNG 素材”；只需点击缩略图切换候选。
+5. 最终确认后运行 `particle-confirm --gate final`、`accept --spec`。这会在用户主题目录创建派生主题，不改写来源主题，并写入一次性“待启用主题”；下一次启动必定优先选中它。然后显式 `apply --theme` 让当前窗口立刻生效；应用后会同步更新面板偏好并清除待启用标记。派生主题含粒子素材时，运行时会默认启用“AI 透明 PNG 素材”；只需点击缩略图切换候选。
 
 粒子提示词必须要求“单个居中主体、透明背景、四角透明”，并禁止文字、边框、场景、Logo 与水印。每次生成前提醒同样的等待与计费说明。
 

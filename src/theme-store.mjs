@@ -15,12 +15,32 @@ export async function readActiveThemeId(settingsPath) {
   }
 }
 
+export async function readPendingThemeId(settingsPath) {
+  try {
+    const value = JSON.parse(await readFile(settingsPath, "utf8"));
+    return typeof value.pendingThemeId === "string" && THEME_ID.test(value.pendingThemeId) ? value.pendingThemeId : null;
+  } catch (error) {
+    if (error.code === "ENOENT" || error instanceof SyntaxError) return null;
+    throw error;
+  }
+}
+
+export async function writePendingThemeId(settingsPath, pendingThemeId) {
+  if (typeof pendingThemeId !== "string" || !THEME_ID.test(pendingThemeId)) throw new Error("待启用主题 ID 无效");
+  let current = {};
+  try { current = JSON.parse(await readFile(settingsPath, "utf8")); } catch (error) { if (error.code !== "ENOENT" && !(error instanceof SyntaxError)) throw error; }
+  await mkdir(dirname(settingsPath), { recursive: true });
+  await writeFile(settingsPath, `${JSON.stringify({ ...current, pendingThemeId, pendingThemeUpdatedAt: new Date().toISOString() }, null, 2)}\n`, "utf8");
+  return pendingThemeId;
+}
+
 export async function writeActiveThemeId(settingsPath, activeThemeId) {
   if (typeof activeThemeId !== "string" || !THEME_ID.test(activeThemeId)) throw new Error("活动主题 ID 无效");
   let current = {};
   try { current = JSON.parse(await readFile(settingsPath, "utf8")); } catch (error) { if (error.code !== "ENOENT" && !(error instanceof SyntaxError)) throw error; }
   await mkdir(dirname(settingsPath), { recursive: true });
-  await writeFile(settingsPath, `${JSON.stringify({ ...current, activeThemeId, updatedAt: new Date().toISOString() }, null, 2)}\n`, "utf8");
+  const { pendingThemeId: _pendingThemeId, pendingThemeUpdatedAt: _pendingThemeUpdatedAt, ...next } = current;
+  await writeFile(settingsPath, `${JSON.stringify({ ...next, activeThemeId, updatedAt: new Date().toISOString() }, null, 2)}\n`, "utf8");
   return activeThemeId;
 }
 

@@ -1,6 +1,6 @@
 # WorkBuddy Skin Lab
 
-为 WorkBuddy 桌面端更换背景，并提供背景安全区、任务页展示方式、回答阅读层和可选背景粒子特效。当前稳定版本为 **v1.5.2**。
+为 WorkBuddy 桌面端更换背景，并提供背景安全区、任务页展示方式、回答阅读层和可选背景粒子特效。当前稳定版本为 **v1.5.3**。
 
 > 本项目是社区工具，不属于 WorkBuddy 或腾讯官方项目。它只通过本机调试连接临时应用背景，不修改 WorkBuddy 安装文件。
 
@@ -21,7 +21,7 @@
 
 ### 安装与启动
 
-1. 从 [v1.5.2 Release](https://github.com/sysxdc/workbuddy-skin-lab/releases/tag/v1.5.2) 下载 `WorkBuddy-Skin-Lab-1.5.2-Windows.zip`。
+1. 从 [v1.5.3 Release](https://github.com/sysxdc/workbuddy-skin-lab/releases/tag/v1.5.3) 下载 `WorkBuddy-Skin-Lab-1.5.3-Windows.zip`。
 2. 将 ZIP 完整解压到普通文件夹，不要直接在压缩包内运行。
 3. 双击 `环境检查.bat`，确认环境检查通过。
 4. 保存 WorkBuddy 中正在进行的任务，然后双击 `开始使用.bat`。
@@ -58,7 +58,7 @@
 2. 粒子支持轻/中/强三档，并可调整慢/正常/快三档速度和颜色；
 3. “手输符号（文字）”最多输入两个 Unicode 字符，例如 `🌸`、`♫`、`✨`；内容只按纯文本显示，不能用于 AI 图片。
 
-v1.5.2 起，任何 AI 生成的视觉粒子都固定通过 `particle-v1` 创建派生主题，并自动启用“AI 透明 PNG 素材”；不会再写入“手输符号”。AI 会把“樱花随风飘落”这类描述转换为受限运动配方；在面板里还可微调轨迹类型、摆动、旋转、缩放起伏和闪烁。不会生成或执行自由 CSS、JavaScript，也不会改动 WorkBuddy 原生组件。
+v1.5.3 起，任何 AI 生成的视觉粒子都固定通过 `particle-v1` 创建派生主题，并自动保存为下次启动主题、启用“AI 透明 PNG 素材”；不会再写入“手输符号”。AI 会把“樱花随风飘落”这类描述转换为受限运动配方；在面板里还可微调轨迹类型、摆动、旋转、缩放起伏和闪烁。不会生成或执行自由 CSS、JavaScript，也不会改动 WorkBuddy 原生组件。
 
 这些设置按当前主题单独保存。切换主题会恢复该主题自己的粒子设置；“重置本主题”会同时清除粒子设置。以前保存的顶部图文数据会被忽略，不再渲染。
 
@@ -82,7 +82,7 @@ v1.5.2 起，任何 AI 生成的视觉粒子都固定通过 `particle-v1` 创建
 
 AI 生成功能不是普通安装的必需项。需要时：
 
-1. 从 [v1.5.2 Release](https://github.com/sysxdc/workbuddy-skin-lab/releases/tag/v1.5.2) 下载并安装 `WorkBuddy-Skin-Lab-1.5.2-Skill.zip`；
+1. 从 [v1.5.3 Release](https://github.com/sysxdc/workbuddy-skin-lab/releases/tag/v1.5.3) 下载并安装 `WorkBuddy-Skin-Lab-1.5.3-Skill.zip`；
 2. 安装同一 Release 中的 `NoneLinear-Image-0.1.0-Skill.zip` 并配置图片服务；
 3. 在 WorkBuddy 新任务中同时启用两个 Skill，描述想要的背景；
 4. 新版 Skill 可创建 `background-v1` 背景主题，或从当前主题创建 `particle-v1` 自定义粒子派生主题；不会套用旧版组件模板。

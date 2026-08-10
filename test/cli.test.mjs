@@ -81,6 +81,7 @@ test("applySkin 拒绝运行时实际主题与请求主题不一致", async () =
 test("apply 未指定主题时恢复磁盘活动主题，成功后再持久化", async () => {
   let saved = null;
   const result = await runCli(["apply"], {
+    readPendingThemeId: async () => null,
     readActiveThemeId: async () => "aurora-lab",
     readSavedThemePreference: async () => null,
     writeActiveThemeId: async (id) => { saved = id; },
@@ -91,6 +92,7 @@ test("apply 未指定主题时恢复磁盘活动主题，成功后再持久化",
   assert.equal(saved, "aurora-lab");
   let wroteAfterFailure = false;
   await assert.rejects(() => runCli(["apply", "--theme", "aurora-lab"], {
+    readPendingThemeId: async () => null,
     writeActiveThemeId: async () => { wroteAfterFailure = true; },
     applySkin: async () => { throw new Error("renderer rejected"); },
   }), /renderer rejected/);
@@ -100,6 +102,7 @@ test("apply 未指定主题时恢复磁盘活动主题，成功后再持久化",
 test("🎨 保存的主题优先于旧磁盘记录并在下次 apply 时固化", async () => {
   let saved = null;
   const result = await runCli(["apply"], {
+    readPendingThemeId: async () => null,
     readSavedThemePreference: async () => "aurora-lab",
     readActiveThemeId: async () => "missing-old-theme",
     writeActiveThemeId: async (id) => { saved = id; },
@@ -147,7 +150,22 @@ test("主题选择顺序为显式请求、🎨 保存、磁盘记录、最近用
   assert.equal(chooseActiveThemeId(valid, { remembered: null, userThemesRoot: "C:\\state\\themes" }), "latest-user");
   assert.equal(chooseActiveThemeId(valid, { remembered: "older-user", userThemesRoot: "C:\\state\\themes" }), "older-user");
   assert.equal(chooseActiveThemeId(valid, { preferred: "latest-user", remembered: "older-user", userThemesRoot: "C:\\state\\themes" }), "latest-user");
+  assert.equal(chooseActiveThemeId(valid, { pending: "latest-user", preferred: "older-user", remembered: "older-user", userThemesRoot: "C:\\state\\themes" }), "latest-user");
   assert.equal(chooseActiveThemeId(valid, { requested: "aurora-lab", preferred: "latest-user", remembered: "older-user", userThemesRoot: "C:\\state\\themes" }), "aurora-lab");
+});
+
+test("待启用主题优先于旧面板偏好，并在成功应用后固化", async () => {
+  let saved = null;
+  const result = await runCli(["apply"], {
+    readPendingThemeId: async () => "aurora-lab",
+    readSavedThemePreference: async () => "custom-theme-7aaebc35",
+    readActiveThemeId: async () => "custom-theme-7aaebc35",
+    writeActiveThemeId: async (id) => { saved = id; },
+    applySkin: async ({ activeId }) => ({ applied: 1, requestedThemeId: activeId, actualThemeIds: [activeId] }),
+  });
+  assert.equal(result.requestedThemeId, "aurora-lab");
+  assert.equal(result.preferenceSource, "pending");
+  assert.equal(saved, "aurora-lab");
 });
 
 test("waitForHomeAnchors 只接受本次真实存在且尺寸达标的 Home 锚点", async () => {

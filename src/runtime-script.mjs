@@ -28,7 +28,7 @@ function runtimeMain(payload) {
     colorScheme: node.style.colorScheme,
   });
   const state = {
-    requestedId: activeId, activeId,
+    requestedId: activeId, activeId, persistOnInstall: Boolean(payload.persistOnInstall),
     listeners: [], cleanups: [], sidebarResizeObserver: null, sidebarTimer: null,
     pageObserver: null, pageNode: null, pageHostObserver: null, pageHost: null, pageFrame: null, pageTimer: null, paletteSource: null,
     guardedOverlays: new Set(), overlayHostStyles: new Map(),
@@ -440,6 +440,11 @@ function runtimeMain(payload) {
     for (const button of document.querySelectorAll(`#${ids.dock} [data-background-id]`)) button.dataset.active = String(button.dataset.backgroundId === (custom.background ? "custom" : (custom.backgroundId || theme.backgrounds?.[0]?.id)));
     const savedNow = safeStorage.read();
     savedNow.activeId = theme.id;
+    if (state.persistOnInstall) {
+      savedNow.preferredActiveId = theme.id;
+      savedNow.preferredActiveIdUpdatedAt = Date.now();
+      state.persistOnInstall = false;
+    }
     safeStorage.write(savedNow);
     if (background && (!custom.colors || !custom.detectedAppearance)) {
       refreshStoredPalette(theme.id, background);
@@ -809,7 +814,7 @@ function runtimeMain(payload) {
   return { installed: true, activeId: state.activeId, themes: themes.length };
 }
 
-export function buildRuntimeScript({ css, themes, activeId }) {
+export function buildRuntimeScript({ css, themes, activeId, persistOnInstall = false }) {
   if (!Array.isArray(themes) || themes.length === 0) throw new Error("至少需要一个可注入主题");
   if (!themes.some((theme) => theme.id === activeId)) throw new Error(`活动主题不存在：${activeId}`);
   // WorkBuddy 的首页组件结构会随版本更新而改变。运行时只接收稳定的背景能力，
@@ -820,7 +825,7 @@ export function buildRuntimeScript({ css, themes, activeId }) {
     copySets: [],
     modules: [],
   }));
-  const payload = { css, themes: backgroundThemes, activeId, ids: { style: STYLE_ID, dock: DOCK_ID, effects: EFFECTS_ID, state: STATE_KEY }, anchorSelectors: ANCHOR_SELECTORS };
+  const payload = { css, themes: backgroundThemes, activeId, persistOnInstall, ids: { style: STYLE_ID, dock: DOCK_ID, effects: EFFECTS_ID, state: STATE_KEY }, anchorSelectors: ANCHOR_SELECTORS };
   return `(${runtimeMain.toString()})(${JSON.stringify(payload)})`;
 }
 

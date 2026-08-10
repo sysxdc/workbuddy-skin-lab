@@ -155,10 +155,12 @@ test("particle-v1 接受后创建派生主题且不改写来源主题", async (t
   await run(["particle-confirm", "--job", initialized.jobId, "--gate", "final", "--jobs-root", jobs, "--store-root", themes]);
   const accepted = await run(["accept", "--job", initialized.jobId, "--spec", spec, "--jobs-root", jobs, "--store-root", themes]);
   assert.equal(accepted.particleOnly, true);
+  assert.equal(accepted.pendingThemeId, accepted.themeId);
   assert.notEqual(accepted.path, source);
   const manifest = JSON.parse(await readFile(join(accepted.path, "theme.json"), "utf8"));
   assert.equal(manifest.particles.assets.length, 3);
   assert.equal(manifest.particles.defaultMotion.type, "fall");
+  assert.equal(JSON.parse(await readFile(join(root, "settings.json"), "utf8")).pendingThemeId, accepted.themeId);
   assert.equal(JSON.parse(await readFile(join(source, "theme.json"), "utf8")).particles, undefined);
 });
 
@@ -189,6 +191,7 @@ test("accept 固化的主题无法带入旧文字或装饰模板", async (t) => 
   await run(["confirm", "--job", fixture.initialized.jobId, "--gate", "final", "--jobs-root", fixture.jobs, "--store-root", fixture.themes]);
   const accepted = await run(["accept", "--job", fixture.initialized.jobId, "--spec", specPath, "--jobs-root", fixture.jobs, "--store-root", fixture.themes]);
   assert.equal(accepted.backgroundOnly, true);
+  assert.equal(JSON.parse(await readFile(join(fixture.root, "settings.json"), "utf8")).pendingThemeId, accepted.themeId);
   const manifest = JSON.parse(await readFile(join(accepted.path, "theme.json"), "utf8"));
   assert.deepEqual(manifest.modules, []);
   for (const forbidden of ["homeHeader", "copySets"]) assert.equal(forbidden in manifest, false);

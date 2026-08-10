@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { createTheme, listThemeDirectories, readActiveThemeId, slugify, writeActiveThemeId } from "../src/theme-store.mjs";
+import { createTheme, listThemeDirectories, readActiveThemeId, readPendingThemeId, slugify, writeActiveThemeId, writePendingThemeId } from "../src/theme-store.mjs";
 
 test("slugify 生成稳定安全 ID 前缀", () => {
   assert.equal(slugify("My Blue Theme"), "my-blue-theme");
@@ -31,5 +31,10 @@ test("活动主题写入磁盘并可在下次启动恢复", async () => {
   assert.equal(await readActiveThemeId(settingsPath), "custom-theme-db46cf4e");
   const saved = JSON.parse(await readFile(settingsPath, "utf8"));
   assert.equal(saved.activeThemeId, "custom-theme-db46cf4e");
+  await writePendingThemeId(settingsPath, "custom-theme-particles-d2b19f37");
+  assert.equal(await readPendingThemeId(settingsPath), "custom-theme-particles-d2b19f37");
+  await writeActiveThemeId(settingsPath, "custom-theme-particles-d2b19f37");
+  assert.equal(await readPendingThemeId(settingsPath), null);
   await assert.rejects(() => writeActiveThemeId(settingsPath, "../escape"), /主题 ID/);
+  await assert.rejects(() => writePendingThemeId(settingsPath, "../escape"), /主题 ID/);
 });

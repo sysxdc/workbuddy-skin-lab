@@ -46,6 +46,7 @@ test("生成的注入脚本只保留背景控制和可清理状态", () => {
   assert.match(script, /data-action="save-theme"/);
   assert.match(script, /保存当前主题/);
   assert.match(script, /preferredActiveId/);
+  assert.match(script, /persistOnInstall/);
   assert.match(script, /下次启动将自动恢复/);
   assert.match(script, /option\.textContent = theme\.name/);
   assert.doesNotMatch(script, /nativeTextSnapshots/);
